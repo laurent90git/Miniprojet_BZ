@@ -10,7 +10,114 @@ class ode_result:
     def __init__(self, y, t, nfev):
         self.y = y
         self.t = t
-        self.nfev = nfev 
+        self.nfev = nfev
+
+
+def getButcher(name):
+  """ Donne le tableau de Butcher (A,b,c) de la méthode RK choisie
+  Source: https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods
+  """
+  name = name.upper()
+  if name=='IE' or name=='IE2': # Implicit Euler, L-stable stiffly accurate
+    A= np.array([[1]])
+    c= np.array([1])
+    b= np.array([1])
+  elif name=='EE': # Explicit Euler
+    A= np.array([[0]])
+    c= np.array([0])
+    b= np.array([1])
+#  elif name=='CRKN': # Crank-Nicolson
+#    A= np.array([[0, 0],
+#                 [0, 1]])
+#    c= np.array([0, 1])
+#    b= np.array([1/2, 1/2])
+  elif name=='L-SDIRK-22-QZ': #Qin and Zhang
+    # n'est pas stiffly accurate, mais est L-stable
+    x = 1+np.sqrt(2)/2
+#    x = 1-np.sqrt(2)/2
+    A= np.array([[x, 0],
+                 [1-x, x]])
+    c= np.array([x, 1])
+    b= np.array([1/2, 1/2])
+  elif name=='RK4':
+    A= np.array([[0,0,0,0],
+                 [1/2, 0, 0, 0],
+                 [0, 1/2, 0, 0],
+                 [0, 0, 1, 0]
+                 ])
+    c= np.array([0, 1/2, 1/2, 1])
+    b= np.array([1/6, 1/3, 1/3, 1/6])
+
+  elif name=='L-SDIRK-43': # L-Stable, stiffly accurate, 4 stages, 3 order, SDIRK method
+    A = np.array([[1/2,   0,  0,   0],
+                  [1/6,  1/2, 0,   0],
+                  [-1/2, 1/2, 1/2, 0],
+                  [3/2, -3/2, 1/2, 1/2],
+                ])
+    c = np.array([1/2, 2/3, 1/2, 1])
+    b = A[-1,:]
+  elif name=='L-SDIRK-33': # L-Stable, stiffly accurate, 3 stages, 3 order, SDIRK method
+    x = 0.4358665215
+    A= np.array([ [x,                                  0,              0],
+                  [(1-x)/2,                           x,                0],
+                  [-3*(x**2)/2 + 4*x -1/4,     3*(x**2)/2-5*x+5/4,      x],
+                ])
+    c= np.array([x, (1+x)/2, 1])
+    b= A[-1,:]
+  elif name== 'ESDIRK32-3': # stiffly accurate
+    # méthode d'ordre 3 extraite de la méthode embedded ESDIRK 32 avec 4 stages
+    # taken from A FAMILY OF ESDIRK INTEGRATION METHODS
+    # JOHN BAGTERP JØRGENSEN ∗, MORTEN RODE KRISTENSEN , AND
+    # PER GROVE THOMSEN
+    gamma = 0.4358665215
+    A= np.array([ [0, 0, 0, 0],
+                  [gamma, gamma, 0, 0],
+                  [(-4*gamma**2 + 6*gamma-1)/(4*gamma), (-2*gamma+1)/(4*gamma), gamma, 0.],
+                  [(6*gamma-1)/(12*gamma), -1/(12*gamma*(2*gamma-1)), (-6*gamma**2 + 6*gamma -1)/(3*(2*gamma-1)), gamma],
+                ])
+    c= np.array([0, 2*gamma, 1, 1])
+    b= A[-1,:]
+
+  elif name== 'ESDIRK32-2': # stiffly accurate
+    # méthode d'ordre 2 extraite de la méthode embedded ESDIRK 32 avec 4 stages
+    # taken from A FAMILY OF ESDIRK INTEGRATION METHODS
+    # JOHN BAGTERP JØRGENSEN ∗, MORTEN RODE KRISTENSEN , AND
+    # PER GROVE THOMSEN
+    gamma = 0.4358665215
+    A= np.array([ [0, 0, 0],
+                  [gamma, gamma, 0],
+                  [(-4*gamma**2 + 6*gamma-1)/(4*gamma), (-2*gamma+1)/(4*gamma), gamma],
+                ])
+    c= np.array([0, 2*gamma, 1])
+    b= A[-1,:]
+  elif name=='ESDIRK5(4I)8L[2]SA':
+    # ESdirk method, stiffly accurate, Diagonally Implicit Runge-Kutta Methods for Ordinary Differential Equations. A Review       by Christopher A. Kennedy
+    # error control possible
+      A = np.zeros((8,8))
+      b = np.zeros(8)
+      c = np.zeros(8)
+      A[1,:2] = [1/4, 1/4]
+      A[2,:3] = [1748874742213/5795261096931, 1748874742213/5795261096931, 1/4]
+      A[3,:4] = [2426486750897/12677310711630, 2426486750897/12677310711630, -783385356511/7619901499812, 1/4]
+
+      A[4,:5] = np.array([1616209367427, 1616209367427, -211896077633, 464248917192, 1])/ \
+                np.array([5722977998639,  5722977998639, 5134769641545, 17550087120101, 4])
+
+      A[5,:6] = np.array([1860464898611, 1825204367749, -1289376786583, 55566826943, 1548994872005,  1])/ \
+                np.array([7805430689312, 7149715425471, 6598860380111,  2961051076052,  13709222415197,  4])
+
+      A[6,:7] = np.array([1783640092711, -5781183663275, 57847255876685, 29339178902168, 122011506936853, -60418758964762, 1])/ \
+                np.array([14417713428467, 18946039887294, 10564937217081, 9787613280015, 12523522131766, 9539790648093, 4])
+
+      A[7,:8] = np.array([3148564786223, -4152366519273, -143958253112335, 16929685656751, 37330861322165, -103974720808012, -93596557767, 1])/ \
+                np.array([23549948766475,  20368318839251,  33767350176582, 6821330976083, 4907624269821, 20856851060343,  4675692258479, 4])
+
+      b[:] = A[-1,:]
+      c = np.array([0, 1/2, (2+np.sqrt(2))/4, 53/100, 4/5, 17/25, 1, 1])
+  else:
+    raise Exception('unknown integrator {}'.format(name))
+
+  return {'A':A, 'b':b, 'c':c}
 
 def heunEuler(fcn, yini, tspan, tolerance, dt_max):
     """ Heun Euler adaptative method"""
@@ -18,16 +125,16 @@ def heunEuler(fcn, yini, tspan, tolerance, dt_max):
     neq = np.size(yini)
     tn=tspan[0]
     dt=dt_max
-    
+
     c = np.array([0,1])
     a = np.array([[0, 0],
                   [1, 0]])
     b = np.array([0.5, 0.5])
     bhat = np.array([1, 0]) #embedded method
-    
+
     phat = 1 #embedded order
     #p = 2 #order
-    
+
     s = np.size(b)
     ki = np.zeros((neq,s))
 
@@ -52,7 +159,7 @@ def heunEuler(fcn, yini, tspan, tolerance, dt_max):
             for j in range(s):
                 embedded_ynp1 = embedded_ynp1 + dt*bhat[j]*ki[:,j]
                 ynp1 = yn + 2*dt*b[j]*ki[:,j] #WHY DO I NEED 2* ???????
-            
+
             error = embedded_ynp1-ynp1
             error_norm = np.dot(error, error)
             dtopt = 0.9*dt*(tolerance/error_norm)**(1/(phat+1))
@@ -77,7 +184,7 @@ def heunEuler(fcn, yini, tspan, tolerance, dt_max):
                     print('oups')
                 print('\n\t t={}'.format(tn))
                 print('\n\tdt={:.3e}, dtopt={:.3e}'.format(dt, dtopt))
-                    
+
     return ode_result(np.array(np.transpose(np.array(y)), order='F'),
                       np.array(T),
                       nfev)
@@ -86,7 +193,7 @@ def computeJacobian(modelfun,x, options, bUseComplexStep):
     """
     Method to numerically compute the Jacobian of the function modelfun with
     respect to all the components of the input vector x.
-    
+
     INPUTS:
         - modelfun:
             a function of the type y=modelfun(x)
@@ -101,7 +208,7 @@ def computeJacobian(modelfun,x, options, bUseComplexStep):
                 True if the modelfun can accept a vectorised input such as a matrix
                 [x, x1, x2, x3] instead of just the vector x. This way, the modelfun can
                 be called less often and more efficiently
-        
+
     OUTPUT:
         - Jac, the Jacobian of the function
     """
@@ -124,10 +231,10 @@ def computeJacobian(modelfun,x, options, bUseComplexStep):
         current_h = np.zeros((n_x,1))
         for ip in range(n_x):
             current_h[ip] = np.max([1e-1*abs(x[ip]), 1e-1]) # perturbation's size
-        
+
             perturbation = np.zeros(np.size(x))
             perturbation[ip] = current_h[ip]
-            
+
             perturbation = x + perturbation
             resP = modelfun(perturbation)
             Dres[:,ip] = (resP-res)/current_h[ip]
@@ -173,8 +280,8 @@ def RK10coeffs():
     -0.0250000000000000000000000000000000000000000000000000000000000,
      0.0333333333333333333333333333333333333333333333333333333333333,
      ])
-    
-    
+
+
     text = """
      1    0    0.100000000000000000000000000000000000000000000000000000000000
  2    0   -0.915176561375291440520015019275342154318951387664369720564660
@@ -313,10 +420,10 @@ def RK10coeffs():
 16   14   -0.342758159847189839942220553413850871742338734703958919937260
 16   15   -0.675000000000000000000000000000000000000000000000000000000000
     """
-    
+
     s = len(b)
     A = np.zeros((s,s))
-    
+
     temp = text.split('\n')
     for i in range(1,len(temp)-1):
         if temp[i]!='':
@@ -327,7 +434,7 @@ def RK10coeffs():
             j = int(temp2[1])
             value = float(temp2[2])
             A[k,j] = value
-    
+
     return A,b,c
 
 def RK4coeffs():
@@ -344,7 +451,7 @@ def RK4coeffs():
 def LDIRK222():
     gamma = (2-2**0.5)/2
     delta = 1-1/(2*gamma)
-    A = np.array([  
+    A = np.array([
                   [gamma, 0],
                   [1-gamma, gamma],
                   ])
@@ -384,7 +491,7 @@ def DIRK121():
     return A,b,c,Ahat,bhat,chat
 
 def DIRK122():
-    A = np.array([  
+    A = np.array([
                   [1/2],
                   ])
     b = np.array([1])
@@ -415,7 +522,7 @@ def LDIRK232():
 
 def DIRK233():
     gamma = (3+3**0.5)/6
-    A = np.array([  
+    A = np.array([
                   [gamma, 0],
                   [1-2*gamma, gamma],
                   ])
@@ -432,7 +539,7 @@ def DIRK233():
 
 def LDIRK343():
     gamma = 0.4358665215
-    A = np.array([  
+    A = np.array([
                   [gamma,                           0,                               0],
                   [(1-gamma)/2,                     gamma,                           0],
                   [-3/2*gamma**2 + 4*gamma - 1/4,    3/2*gamma**2 - 5*gamma + 5/4,   gamma ],
@@ -450,7 +557,7 @@ def LDIRK343():
     return A,b,c,Ahat,bhat,chat
 
 def LDIRK443():
-    A = np.array([  
+    A = np.array([
                   [1/2, 0, 0, 0],
                   [1/6, 1/2, 0, 0],
                   [-1/2, 1/2, 1/2, 0],
@@ -493,25 +600,25 @@ def rk4(tini, tend, nt, yini, fcn):
     return ode_result(y, t, nfev)
 
 if __name__=='__main__':
-    
+
     if 0:
         lbda = -0.2
         modelfun = lambda t,x: lbda*x
         yini = np.array([15., 15])
         out = heunEuler(fcn=modelfun, yini=yini, tspan=[0.,10.], tolerance=1e-6, dt_max=0.1)
         #out = rk4(tini=0., tend=10., nt=1000, yini=yini, fcn=modelfun)
-        
+
         yth = np.zeros(np.shape(out.y))
         for i in range(np.size(yini)):
             yth[i,:] = yini[i]*np.exp(lbda*(out.t-out.t[0]))
-            
+
         import matplotlib.pyplot as plt
         plt.figure()
         plt.plot(out.t, out.y[1,:], marker='+', label='num')
         plt.plot(out.t, yth[1,:], marker=None, label='th')
         plt.ylim([-10,30])
         plt.title('solution')
-        
+
         plt.figure()
         plt.plot(np.diff(out.t), marker='+')
         plt.title('solution dt')

@@ -2,7 +2,7 @@ CC = gcc
 FC = gfortran
 LD = gcc
 
-CCFLAGS = -fPIC
+CCFLAGS = -fPIC -std=c99
 FCFLAGS = -fPIC -fno-underscoring
 LDFLAGS = -shared
 
