@@ -171,7 +171,8 @@ def perform_step(x, modelfun, res, Dres, Dresinv, LU, options):
 
 def updateJacobian(modelfun, x, options, jacModelfun):
     """ Conveniency function to update the Jacobian"""
-    print('\t\t\t updating Jacobian...')
+    if options['bDebug']:
+        print('\t\t\t updating Jacobian...')
     if jacModelfun==None:
         res, Dres = computeJacobian(modelfun,x, options, bReturnResult=True)
     else:
@@ -251,7 +252,8 @@ class newtonSolverObj():
   #                    x = perform_step(x, x_current, t, dt, fun, res, Dres, Dresinv, LU, options)
                   else: # the previously computed Jacobian is potentially not good enough
                     nConsecutiveIterWithIncreasingRes += 1
-                    print('nConsecutiveIterWithIncreasingRes = {}'.format(nConsecutiveIterWithIncreasingRes))
+                    if options['bDebug']:
+                        print('nConsecutiveIterWithIncreasingRes = {}'.format(nConsecutiveIterWithIncreasingRes))
                     if nConsecutiveIterWithIncreasingRes > options['nMaxBadIters']: #en se basant sur mon expérience pour DIRK, il faut laisser une ité de marge pour éviter de recalculer trop souvent la Jacobienne
                         nConsecutiveIterWithIncreasingRes = 0
                         if options['bDebug']:
