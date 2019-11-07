@@ -10,86 +10,78 @@ import numpy as np
 import matplotlib.pyplot as plt
 import newton
 import ctypes
+from utilities import make_nd_array
+from mylib import integration
 
 # imports relatifs
-import sys, os
+#import sys, os
 #sys.path.append(os.path.join('../ressources_utiles/TP_MAP551/notebook_pc_07', 'mylib'))
-from mylib import integration
 import rk_coeffs
 
 
-def make_nd_array(c_pointer, shape, dtype=np.float64, order='C', own_data=True):
-    """ Convert arrayx from C to python """
-    arr_size = np.prod(shape[:]) * np.dtype(dtype).itemsize
-    #if sys.version_info.major >= 3:
-    buf_from_mem = ctypes.pythonapi.PyMemoryView_FromMemory
-    buf_from_mem.restype = ctypes.py_object
-    buf_from_mem.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
-    buffer = buf_from_mem(c_pointer, arr_size, 0x100)
-    #else:
-    #    buf_from_mem = ctypes.pythonapi.PyBuffer_FromMemory
-    #    buf_from_mem.restype = ctypes.py_object
-    #    buffer = buf_from_mem(c_pointer, arr_size)
-    arr = np.ndarray(tuple(shape[:]), dtype, buffer, order=order)
-    if own_data and not arr.flags.owndata:
-        return arr.copy()
-    else:
-        return arr
-
-class BZ1D_3equations():
-    """ Modèle BZ à 3 équations, paramétrable """
-    def __init__(self, eps=1e-2, mu=5e-5, f=3, q=2e-3,
-                 Da=2.5e-3, Db=2.5e-3, Dc = 1.5e-3,
-                 xmin=0., xmax=4., nx=100) :
+class BurgersDiff1D():
+    """ Equation de Burgers avec diffusion """
+    def __init__(self, mu=1e-2, c=1., xmin=0., xmax=4., nx=100, osc_bc=lambda t: 0.) :
+        """ osc_bs est un fonction du temps qui donne le flux gauche du/dx(0) """
         self.mu = mu
-        self.eps = eps
-        self.f = f
-        self.q = q
-        self.Da = Da
-        self.Db = Db
-        self.Dc = Dc
+        self.c = c
         self.xmin = xmin
         self.xmax = xmax
         self.nx = nx
+        self.osc_bc = osc_bc
+        self.x = np.linspace(xmin,xmax,nx)
         self.dx = (xmax-xmin)/(nx+1)
+        
+    def init_sol(self):
+        x_0 = np.ones_like(self.x)
+        x_0[x_0.size//2:] = 0.
+        return x_0
 
     def fcn(self, t, y):
-        """ y est de la forme [ a0, b0, c0, a1, b1 , c1 ] pour assurer une
-        structure tridiagonale par bloc pour la Jacobienne """
+#        mu  = self.mu
+#        nx = self.nx
+#        dx = self.dx
+#        c  = self.c
+#        doverdxdx = mu/(dx*dx)
+#        ydot = np.zeros_like(y)
+#        # neumann BC
+#        flux_gauche = self.osc_bc(t)
+#        y_gauche = y[0] - dx * flux_gauche
+#        y_droit  = 0.
+#        ydot[0]      = -c*(y[0]-y_gauche)/dx       + doverdxdx*(y_gauche-2*y[0]+y[1])
+#        ydot[1:nx-1] = -c*(y[1:nx-1]-y[:nx-2])/dx  + doverdxdx*(y[0:nx-2] - 2*y[1:nx-1] + y[2:nx])
+#        ydot[nx-1]   = -c*(y[nx-1]-y[nx-2])/dx     + doverdxdx*(y_droit-2*y[-1]+y[-2])
+        ydot = self.fcn_conv(t,y) + self.fcn_diff(t,y)
+        return ydot
+
+    def fcn_diff(self, t, y):
         mu  = self.mu
-        eps = self.eps
-        f   = self.f
-        q = self.q
-        Da = self.Da
-        Db = self.Db
-        Dc = self.Dc
         nx = self.nx
         dx = self.dx
-        doverdxdx = 1/(dx*dx)
-
-        ymat = np.reshape(y, (3,nx), order='F').T
-        ydot = np.zeros(ymat.shape)
-
-        a = ymat[:,0]
-        b = ymat[:,1]
-        c = ymat[:,2]
-
-        i=0
+        doverdxdx = mu/(dx*dx)
+        ydot = np.zeros_like(y)
         # neumann BC
-        ydot[i,0] = Da*(-2*a[i]+a[i+1])*doverdxdx + 1/mu*( -q*a[i] - a[i]*b[i] + f*c[i] )
-        ydot[i,1] = Db*(-2*b[i]+b[i+1])*doverdxdx + 1/eps*( q*a[i] - a[i]*b[i] + b[i]*(1-b[i]) )
-        ydot[i,2] = Dc*(-2*c[i]+c[i+1])*doverdxdx + b[i] - c[i]
-        for i in range(1,nx-1):
-            ydot[i,0] = Da*(a[i-1]-2*a[i]+a[i+1])*doverdxdx + 1/mu*( -q*a[i] - a[i]*b[i] + f*c[i] )
-            ydot[i,1] = Db*(b[i-1]-2*b[i]+b[i+1])*doverdxdx + 1/eps*( q*a[i] - a[i]*b[i] + b[i]*(1-b[i]) )
-            ydot[i,2] = Dc*(c[i-1]-2*c[i]+c[i+1])*doverdxdx + b[i] - c[i]
-        i=nx-1
-        ydot[i,0] = Da*(a[i-1]-2*a[i])*doverdxdx + 1/mu*( -q*a[i] - a[i]*b[i] + f*c[i] )
-        ydot[i,1] = Db*(b[i-1]-2*b[i])*doverdxdx + 1/eps*( q*a[i] - a[i]*b[i] + b[i]*(1-b[i]) )
-        ydot[i,2] = Dc*(c[i-1]-2*c[i])*doverdxdx + b[i] - c[i]
+        flux_gauche = self.osc_bc(t)
+        y_gauche = y[0] - dx * flux_gauche
+        y_droit  = 0.
+        ydot[0]      = doverdxdx*(y_gauche-2*y[0]+y[1])
+        ydot[1:nx-1] = doverdxdx*(y[0:nx-2] - 2*y[1:nx-1] + y[2:nx])
+        ydot[nx-1]   = doverdxdx*(y_droit-2*y[-1]+y[-2])
+        return ydot
 
-        return ydot.ravel(order='C')
-
+    def fcn_conv(self, t, y):
+        nx = self.nx
+        dx = self.dx
+        c  = self.c
+        ydot = np.zeros_like(y)
+        # neumann BC
+        flux_gauche = self.osc_bc(t)
+        y_gauche = y[0] - dx * flux_gauche
+        ydot[0]      = -c*(y[0]-y_gauche)/dx
+        ydot[1:nx-1] = -c*(y[1:nx-1]-y[:nx-2])/dx
+        ydot[nx-1]   = -c*(y[nx-1]-y[nx-2])/dx
+        return ydot
+    
     def fcn_radau(self, n, t, y, ydot, rpar, ipar):
         n_python = 3*self.nx
         t_python = make_nd_array(t, (1,))[0]
@@ -97,6 +89,7 @@ class BZ1D_3equations():
         y_dot_python = self.fcn(t_python, y_python)
         for i in range(y_dot_python.size):
            ydot[i] = y_dot_python[i]
+
 
 def computeJacobian(modelfun,x, options, bUseComplexStep):
     """
@@ -299,10 +292,36 @@ def DIRK_integration(f, y0, t_span, nt, A, b, c, options, gradF=None,
       out.LU = LU
     return out
 
+class strang_result:
+    def __init__(self, t, y):
+        self.t = t
+        self.y = y
+
+def strang(tini, tend, nt, yini, fcn_diff, fcn_reac, tol_diff=1.e-12, tol_reac=1.e-12,
+           jac_reac=None, jac_diff=None, sparsity_pattern_reac=None, sparsity_pattern_diff=None):
+    t = np.linspace(tini, tend, nt)
+    dt = (tend-tini)/(nt-1)
+    ysol = yini
+    yout = np.zeros((yini.size,nt))
+    yout[:,0] = yini[:]
+    for it, ti in enumerate(t[:-1]):
+        sol = scipy.integrate.solve_ivp(fun=fcn_reac, y0=ysol, t_span=[ti, ti+dt/2], method='Radau', t_eval=[ti+dt/2],
+                                        vectorized=False, rtol=tol_reac, atol=tol_reac, jac=jac_reac, jac_sparsity=sparsity_pattern_reac)
+        ysol = sol.y[:,0]
+        
+        sol = scipy.integrate.solve_ivp(fun=fcn_diff, y0=ysol, t_span=[ti, ti+dt], method='Radau', t_eval=[ti+dt],
+                                        vectorized=False, rtol=tol_diff, atol=tol_diff, jac=jac_diff, jac_sparsity=sparsity_pattern_diff)
+        ysol = sol.y[:,0]
+        
+        sol = scipy.integrate.solve_ivp(fun=fcn_reac, y0=ysol, t_span=[ti+dt/2, ti+dt], method='Radau', t_eval=[ti+dt],
+                                        vectorized=False, rtol=tol_reac, atol=tol_reac, jac=jac_reac, jac_sparsity=sparsity_pattern_reac)
+        ysol = sol.y[:,0]
+        yout[:,it+1] = ysol[:]
+    return strang_result(t,yout)
+
 
 if __name__=='__main__':
-
-    if 0: #spring-mass
+    if 0: #@spring-mass test
                 print('testing DIRK with a simple spring-mass model')
                 options = {'k_sur_m': 33.,
                            'bDebug': True,
@@ -317,17 +336,17 @@ if __name__=='__main__':
                 x_0 = np.array((0.3,0.))
                 nt = 1000
                 T = np.array([0., 1.])
-
+            
                 # compute reference solution
                 solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-6, atol=1e-6, jac=None)
                 if solref.status!=0:
                     raise Exception('ODE integration failed: {}'.format(solref.message))
-
+            
                 # compute solution with DIRK
                 import rk_coeffs
             #    A,b,c = rk_coeffs.RK4coeffs()
                 A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-
+            
             #    A=np.array([[1,],])
             #    b=np.array([1])
             #    c=np.array([1])
@@ -339,7 +358,7 @@ if __name__=='__main__':
                 t_end = pytime.time()
                 print('computed in {} s'.format(t_end-t_start))
             #    sol = solref
-
+            
                 fig,ax  = plt.subplots(2,1,sharex=True)
                 if sol.t.size>100:
                     markevery = np.floor(sol.t.size/50).astype(int)
@@ -347,19 +366,19 @@ if __name__=='__main__':
                     markevery = 1
                 ax[0].plot(sol.t, sol.y[0,:], label='DIRK', marker='+', linestyle='', markevery=markevery)
                 ax[0].plot(solref.t, solref.y[0,:], label='ref', marker=None)
-
+            
                 ax[1].plot(sol.t, sol.y[1,:], label='DIRK', marker='+', linestyle='', markevery=markevery)
                 ax[1].plot(solref.t, solref.y[1,:], label='ref', marker=None)
-
+            
                 ax[0].legend()
                 ax[1].set_xlabel('t (s)')
                 ax[1].set_ylabel('v (m/s)')
                 ax[0].set_ylabel('x (m/s)')
-
+            
                 ax[0].grid(which='both')
                 ax[1].grid(which='both')
                 fig.suptitle('Spring-mass system')
-
+            
                 fig,ax  = plt.subplots(2,1,sharex=True)
                 import scipy.interpolate
                 interped_ref = np.zeros_like(sol.y)
@@ -369,75 +388,90 @@ if __name__=='__main__':
                 error_v = np.abs( sol.y[1,:] - interped_ref[1,:] )
                 ax[0].semilogy(sol.t, error_x)
                 ax[1].semilogy(sol.t, error_v)
-
+            
                 ax[1].set_xlabel('t (s)')
                 ax[1].set_ylabel('v (m/s)')
                 ax[0].set_ylabel('x (m/s)')
-
+            
                 ax[0].grid(which='both')
                 ax[1].grid(which='both')
                 fig.suptitle('Error compared to ref')
-    else:
-        # model parameterization
-        nx=100
-        nt=1000
-        T = np.array([0., 1.])
-        BZobj = BZ1D_3equations(eps=1e-2, mu=5e-5, f=3, q=2e-3,
-                 Da=2.5e-3, Db=2.5e-3, Dc = 1.5e-3,
-                 xmin=0., xmax=4., nx=nx)
-        modelfun = BZobj.fcn
-        gradF=None
+            
+            
+    else: # viscid burgers
+                def osc_left_bc(t):
+                    """ fonction pour faire varier le flux gauche """
+                    return 0*4*np.sin(2*np.pi*t*10)
+                
+                nx=200
+                obj = BurgersDiff1D(mu=0.3e-2, c=0.2, xmin=0., xmax=2., nx=nx, osc_bc=osc_left_bc)
+                fcn = obj.fcn
+                x_0 = obj.init_sol()
+                
+                gradF = lambda t,x: modelA
+                nt = 1000
+                T = np.array([0., 1.])
+            
+                # compute reference solution
+                t_start = pytime.time()
+                
+                # compute jacobians to speed up things
+                from scipy.sparse import diags
+                import numpy as np
+                k = np.array([np.ones(nx-1),-2*np.ones(nx),np.ones(nx-1)])
+                offset = [-1,0,1]
+                sparsity_pattern_diff = diags(k,offset).toarray()
+                jac_diff = obj.mu/(obj.dx**2)*sparsity_pattern_diff
 
-        # initial conditions
-        a0  = 1+0*np.linspace(0,1,nx)
-        b0  = 1+0*np.linspace(0,1,nx)
-        c0  = 1+0*np.linspace(0,1,nx)
-        x_0 = np.vstack((a0,b0,c0)).ravel(order='F')
-        mesh_x = np.linspace(0,4,nx)
-
-
-        # compute reference solution
-        t_start = pytime.time()
-        if 0: # PYTHON version
-            solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-12, atol=1e-12, jac=gradF)
-            if solref.status!=0:
-                raise Exception('ODE integration failed: {}'.format(solref.message))
-            yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
-            solref.nstep = solref.t.size
-        else: # FORTRAN VERSION
-          solref = integration.radau5(T[0], T[1], x_0, BZobj.fcn_radau, njac=1, atol=1.e-12, rtol=1.e-12)
-          solref.y = solref.y[:,np.newaxis]
-          yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
-        t_end = pytime.time()
-        print('Reference solution computed in {} s with {} time steps'.format(t_end-t_start, solref.nstep))
-
-        # compute solution with DIRK
-        if 1:
+                k = np.array([-1*np.ones(nx-1), np.ones(nx)])
+                offset = [-1,0]
+                sparsity_pattern_reac = diags(k,offset).toarray()
+                jac_reac = None #-obj.c/obj.dx * sparsity_pattern_reac
+                
+                sparsity_pattern = sparsity_pattern_diff
+                
+                solref = scipy.integrate.solve_ivp(fun=fcn, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-12, atol=1e-12, jac=None,
+                                                   jac_sparsity=sparsity_pattern)
+                t_end = pytime.time()
+                print('reference computed in {} s'.format(t_end-t_start))
+                if solref.status!=0:
+                    raise Exception('ODE integration failed: {}'.format(solref.message))
+            
+                # compute solution with DIRK
             #    A,b,c = rk_coeffs.RK4coeffs()
-            #    A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-                A=np.array([[1,],]);  b=np.array([1]);  c=np.array([1])
+                A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
+            
+            #    A=np.array([[1,],])
+            #    b=np.array([1])
+            #    c=np.array([1])
+#                import time as pytime
                 t_start = pytime.time()
                 sol=None
-                sol = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
+                sol = DIRK_integration(f=fcn, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
                                        bRosenbrockApprox=False, bUseCustomNewton=True, initSol=sol)
-                ysol = [ sol.y[::3,:], sol.y[1::3,:], sol.y[2::3,:] ]
                 t_end = pytime.time()
-                print('DIRK solution computed in {} s with {} time steps'.format(t_end-t_start, sol.t.size))
-        else:
-          ysol=yref
-          sol=solref
+                print('DIRK computed in {} s'.format(t_end-t_start))
+                
+                # Splitting
+                t_start = pytime.time()
+                sol_split = strang(tini=T[0], tend=T[1], nt=100, yini=x_0, fcn_diff=obj.fcn_diff, fcn_reac=obj.fcn_conv,
+                                   tol_diff=1.e-12, tol_reac=1.e-12, jac_reac=jac_reac, jac_diff=jac_diff,
+                                   sparsity_pattern_reac=sparsity_pattern_reac, sparsity_pattern_diff=sparsity_pattern_diff)
+                t_end = pytime.time()
+                print('Strang computed in {} s'.format(t_end-t_start))
 
-
-        nvar = 3
-        fig,ax  = plt.subplots(nvar,1,sharex=True)
-        if sol.t.size>2e3:
-            markevery = np.floor(sol.t.size/50).astype(int)
-        else:
-            markevery = 1
-        for i in range(nvar):
-            ax[i].plot(mesh_x, ysol[i][:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery, linewidth=2)
-            ax[i].plot(mesh_x, yref[i][:,-1], label='ref', marker=None, linewidth=0.5)
-            ax[i].grid(which='both')
-        ax[0].legend()
-        ax[-1].set_ylabel('x (m/s)')
-        fig.suptitle('last time step BZ')
+                fig,ax  = plt.subplots(1,1,sharex=True)
+                ax = [ax]
+                if obj.x.size>100:
+                    markevery = np.floor(sol.t.size/50).astype(int)
+                else:
+                    markevery = 1
+                ax[0].plot(obj.x, solref.y[:,-1], label='ref', marker=None)
+                ax[0].plot(obj.x, sol.y[:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery)
+                ax[0].plot(obj.x, sol_split.y[:,-1], label='Strang', marker='x', linestyle='', markevery=markevery)
+                ax[0].legend()
+                ax[0].set_xlabel('x')
+                ax[0].set_ylabel('u')
+                ax[0].grid(which='both')
+                fig.suptitle('Burgers with viscosity={:.3e}'.format(obj.mu))
+            
