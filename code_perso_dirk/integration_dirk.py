@@ -4,16 +4,43 @@ Created on Tue Nov  5 17:24:00 2019
 
 @author: Laurent
 """
+import time as pytime
 import scipy.integrate
 import numpy as np
 import matplotlib.pyplot as plt
 import newton
+import ctypes
+
+# imports relatifs
+import sys, os
+#sys.path.append(os.path.join('../ressources_utiles/TP_MAP551/notebook_pc_07', 'mylib'))
+from mylib import integration
+import rk_coeffs
+
+
+def make_nd_array(c_pointer, shape, dtype=np.float64, order='C', own_data=True):
+    """ Convert arrayx from C to python """
+    arr_size = np.prod(shape[:]) * np.dtype(dtype).itemsize
+    #if sys.version_info.major >= 3:
+    buf_from_mem = ctypes.pythonapi.PyMemoryView_FromMemory
+    buf_from_mem.restype = ctypes.py_object
+    buf_from_mem.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
+    buffer = buf_from_mem(c_pointer, arr_size, 0x100)
+    #else:
+    #    buf_from_mem = ctypes.pythonapi.PyBuffer_FromMemory
+    #    buf_from_mem.restype = ctypes.py_object
+    #    buffer = buf_from_mem(c_pointer, arr_size)
+    arr = np.ndarray(tuple(shape[:]), dtype, buffer, order=order)
+    if own_data and not arr.flags.owndata:
+        return arr.copy()
+    else:
+        return arr
 
 class BZ1D_3equations():
     """ Modèle BZ à 3 équations, paramétrable """
     def __init__(self, eps=1e-2, mu=5e-5, f=3, q=2e-3,
                  Da=2.5e-3, Db=2.5e-3, Dc = 1.5e-3,
-                 xmin=0., xmax=4., nx=100) : 
+                 xmin=0., xmax=4., nx=100) :
         self.mu = mu
         self.eps = eps
         self.f = f
@@ -21,11 +48,11 @@ class BZ1D_3equations():
         self.Da = Da
         self.Db = Db
         self.Dc = Dc
-        self.xmin = xmin 
+        self.xmin = xmin
         self.xmax = xmax
-        self.nx = nx 
-        self.dx = (xmax-xmin)/(nx+1) 
- 
+        self.nx = nx
+        self.dx = (xmax-xmin)/(nx+1)
+
     def fcn(self, t, y):
         """ y est de la forme [ a0, b0, c0, a1, b1 , c1 ] pour assurer une
         structure tridiagonale par bloc pour la Jacobienne """
@@ -46,7 +73,7 @@ class BZ1D_3equations():
         a = ymat[:,0]
         b = ymat[:,1]
         c = ymat[:,2]
-        
+
         i=0
         # neumann BC
         ydot[i,0] = Da*(-2*a[i]+a[i+1])*doverdxdx + 1/mu*( -q*a[i] - a[i]*b[i] + f*c[i] )
@@ -60,9 +87,17 @@ class BZ1D_3equations():
         ydot[i,0] = Da*(a[i-1]-2*a[i])*doverdxdx + 1/mu*( -q*a[i] - a[i]*b[i] + f*c[i] )
         ydot[i,1] = Db*(b[i-1]-2*b[i])*doverdxdx + 1/eps*( q*a[i] - a[i]*b[i] + b[i]*(1-b[i]) )
         ydot[i,2] = Dc*(c[i-1]-2*c[i])*doverdxdx + b[i] - c[i]
-        
+
         return ydot.ravel(order='C')
-    
+
+    def fcn_radau(self, n, t, y, ydot, rpar, ipar):
+        n_python = 3*self.nx
+        t_python = make_nd_array(t, (1,))[0]
+        y_python = make_nd_array(y, (n_python,))
+        y_dot_python = self.fcn(t_python, y_python)
+        for i in range(y_dot_python.size):
+           ydot[i] = y_dot_python[i]
+
 def computeJacobian(modelfun,x, options, bUseComplexStep):
     """
     Method to numerically compute the Jacobian of the function modelfun with
@@ -246,7 +281,9 @@ def DIRK_integration(f, y0, t_span, nt, A, b, c, options, gradF=None,
                     else:
                         kni = scipy.optimize.fsolve(func= tempfun,
                                               x0=K[:,0],
-                                              fprime=gradFun,
+                                              fprime=None,
+                                              band=(5,5), #gradFun
+                                              epsfcn = 1e-7,
                                               args=(),)
             K[:,isub] = kni #f(tn+c[isub]*dt, ui[:,isub])
         ## END OF STEP --> reaffect unm1
@@ -280,17 +317,17 @@ if __name__=='__main__':
                 x_0 = np.array((0.3,0.))
                 nt = 1000
                 T = np.array([0., 1.])
-                
+
                 # compute reference solution
-                sol_ref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-6, atol=1e-6, jac=None)
-                if sol_ref.status!=0:
-                    raise Exception('ODE integration failed: {}'.format(sol_ref.message))
-            
+                solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-6, atol=1e-6, jac=None)
+                if solref.status!=0:
+                    raise Exception('ODE integration failed: {}'.format(solref.message))
+
                 # compute solution with DIRK
                 import rk_coeffs
             #    A,b,c = rk_coeffs.RK4coeffs()
                 A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-            
+
             #    A=np.array([[1,],])
             #    b=np.array([1])
             #    c=np.array([1])
@@ -298,93 +335,102 @@ if __name__=='__main__':
                 t_start = pytime.time()
                 sol=None
                 sol = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
-                                       bUseCustomNewton=True, initSol=sol)
+                                       bRosenbrockApprox=False, bUseCustomNewton=False, initSol=sol)
                 t_end = pytime.time()
                 print('computed in {} s'.format(t_end-t_start))
-            #    sol = sol_ref
-            
+            #    sol = solref
+
                 fig,ax  = plt.subplots(2,1,sharex=True)
                 if sol.t.size>100:
                     markevery = np.floor(sol.t.size/50).astype(int)
                 else:
                     markevery = 1
                 ax[0].plot(sol.t, sol.y[0,:], label='DIRK', marker='+', linestyle='', markevery=markevery)
-                ax[0].plot(sol_ref.t, sol_ref.y[0,:], label='ref', marker=None)
-            
+                ax[0].plot(solref.t, solref.y[0,:], label='ref', marker=None)
+
                 ax[1].plot(sol.t, sol.y[1,:], label='DIRK', marker='+', linestyle='', markevery=markevery)
-                ax[1].plot(sol_ref.t, sol_ref.y[1,:], label='ref', marker=None)
-            
+                ax[1].plot(solref.t, solref.y[1,:], label='ref', marker=None)
+
                 ax[0].legend()
                 ax[1].set_xlabel('t (s)')
                 ax[1].set_ylabel('v (m/s)')
                 ax[0].set_ylabel('x (m/s)')
-            
+
                 ax[0].grid(which='both')
                 ax[1].grid(which='both')
                 fig.suptitle('Spring-mass system')
-            
+
                 fig,ax  = plt.subplots(2,1,sharex=True)
                 import scipy.interpolate
                 interped_ref = np.zeros_like(sol.y)
-                interped_ref[0,:] = scipy.interpolate.interp1d(x=sol_ref.t, y=sol_ref.y[0,:], kind='linear')(sol.t)
-                interped_ref[1,:] = scipy.interpolate.interp1d(x=sol_ref.t, y=sol_ref.y[1,:], kind='linear')(sol.t)
+                interped_ref[0,:] = scipy.interpolate.interp1d(x=solref.t, y=solref.y[0,:], kind='linear')(sol.t)
+                interped_ref[1,:] = scipy.interpolate.interp1d(x=solref.t, y=solref.y[1,:], kind='linear')(sol.t)
                 error_x = np.abs( sol.y[0,:] - interped_ref[0,:] )
                 error_v = np.abs( sol.y[1,:] - interped_ref[1,:] )
                 ax[0].semilogy(sol.t, error_x)
                 ax[1].semilogy(sol.t, error_v)
-            
+
                 ax[1].set_xlabel('t (s)')
                 ax[1].set_ylabel('v (m/s)')
                 ax[0].set_ylabel('x (m/s)')
-            
+
                 ax[0].grid(which='both')
                 ax[1].grid(which='both')
                 fig.suptitle('Error compared to ref')
     else:
         # model parameterization
         nx=100
-        nt=2000
-        T = np.array([0., 2.])
+        nt=1000
+        T = np.array([0., 1.])
         BZobj = BZ1D_3equations(eps=1e-2, mu=5e-5, f=3, q=2e-3,
                  Da=2.5e-3, Db=2.5e-3, Dc = 1.5e-3,
                  xmin=0., xmax=4., nx=nx)
         modelfun = BZobj.fcn
         gradF=None
-        
+
         # initial conditions
-        a0  = np.linspace(0,1,nx)
-        b0  = 1-np.linspace(0,1,nx)
-        c0  = 1-np.linspace(0,1,nx)
+        a0  = 1+0*np.linspace(0,1,nx)
+        b0  = 1+0*np.linspace(0,1,nx)
+        c0  = 1+0*np.linspace(0,1,nx)
         x_0 = np.vstack((a0,b0,c0)).ravel(order='F')
         mesh_x = np.linspace(0,4,nx)
-    
-    
+
+
         # compute reference solution
-#        sol_ref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-6, atol=1e-6, jac=None)
-#        if sol_ref.status!=0:
-#            raise Exception('ODE integration failed: {}'.format(sol_ref.message))
-#        yref = [ sol_ref.y[::3,:], sol_ref.y[1::3,:], sol_ref.y[2::3,:] ]
-        
-        # compute solution with DIRK
-        import rk_coeffs
-    #    A,b,c = rk_coeffs.RK4coeffs()
-#        A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-        A=np.array([[1,],]);  b=np.array([1]);  c=np.array([1])
-        import time as pytime
         t_start = pytime.time()
-        sol=None
-        sol = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
-                               bUseCustomNewton=True, initSol=sol)
-        ysol = [ sol.y[::3,:], sol.y[1::3,:], sol.y[2::3,:] ]
+        if 0: # PYTHON version
+            solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-12, atol=1e-12, jac=gradF)
+            if solref.status!=0:
+                raise Exception('ODE integration failed: {}'.format(solref.message))
+            yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
+            solref.nstep = solref.t.size
+        else: # FORTRAN VERSION
+          solref = integration.radau5(T[0], T[1], x_0, BZobj.fcn_radau, njac=1, atol=1.e-12, rtol=1.e-12)
+          solref.y = solref.y[:,np.newaxis]
+          yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
         t_end = pytime.time()
-        print('computed in {} s'.format(t_end-t_start))
-    #    sol = sol_ref
-        sol_ref = sol
-        yref = ysol
-    
+        print('Reference solution computed in {} s with {} time steps'.format(t_end-t_start, solref.nstep))
+
+        # compute solution with DIRK
+        if 1:
+            #    A,b,c = rk_coeffs.RK4coeffs()
+            #    A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
+                A=np.array([[1,],]);  b=np.array([1]);  c=np.array([1])
+                t_start = pytime.time()
+                sol=None
+                sol = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
+                                       bRosenbrockApprox=False, bUseCustomNewton=True, initSol=sol)
+                ysol = [ sol.y[::3,:], sol.y[1::3,:], sol.y[2::3,:] ]
+                t_end = pytime.time()
+                print('DIRK solution computed in {} s with {} time steps'.format(t_end-t_start, sol.t.size))
+        else:
+          ysol=yref
+          sol=solref
+
+
         nvar = 3
         fig,ax  = plt.subplots(nvar,1,sharex=True)
-        if sol.t.size>100:
+        if sol.t.size>2e3:
             markevery = np.floor(sol.t.size/50).astype(int)
         else:
             markevery = 1
@@ -392,8 +438,6 @@ if __name__=='__main__':
             ax[i].plot(mesh_x, ysol[i][:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery, linewidth=2)
             ax[i].plot(mesh_x, yref[i][:,-1], label='ref', marker=None, linewidth=0.5)
             ax[i].grid(which='both')
-            
         ax[0].legend()
         ax[-1].set_ylabel('x (m/s)')
         fig.suptitle('last time step BZ')
-    
