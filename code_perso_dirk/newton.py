@@ -171,8 +171,8 @@ def perform_step(x, modelfun, res, Dres, Dresinv, LU, options):
 
 def updateJacobian(modelfun, x, options, jacModelfun):
     """ Conveniency function to update the Jacobian"""
-    if options['bDebug']:
-        print('\t\t\t updating Jacobian...')
+#    if options['bDebug']:
+    print('\t\t\t updating Jacobian...')
     if jacModelfun==None:
         res, Dres = computeJacobian(modelfun,x, options, bReturnResult=True)
     else:
