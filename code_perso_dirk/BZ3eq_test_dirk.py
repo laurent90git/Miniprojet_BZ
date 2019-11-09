@@ -30,6 +30,41 @@ class BZ1D_3equations():
         self.xmax = xmax
         self.nx = nx
         self.dx = (xmax-xmin)/(nx+1)
+        self.x = np.linspace(xmin,xmax,nx)
+        
+    def init_sol(self):
+        """ Initialisatio "intelligente" de la solution """
+        ylim = 0.05
+        neq  = 3
+        f = self.f
+        q = self.q
+        b = np.zeros(nx)
+        c = np.zeros(nx)
+        for inx in range( nx//20 +1 ):
+            xcoor = 0.5
+            ycoor = inx/(nx/20) - ylim        
+            if (ycoor >= 0 and ycoor<=0.3*xcoor):
+              b[inx] = 0.8
+            else:
+              b[inx] = q*(f+1)/(f-1)
+        
+            if ( ycoor>=0. ):
+              c[inx] = q*(f+1)/(f-1) + np.arctan(ycoor/xcoor)/(8*np.pi*f)
+            else:
+              c[inx] = q*(f+1)/(f-1) + (np.arctan(ycoor/xcoor) + 2*np.pi)/(8*np.pi*f)
+
+        b[nx//20+1:]=b[nx//20]
+        c[nx//20+1:]=c[nx//20]
+    
+        a=(f*c)/(q+b)
+        u = np.zeros(neq*nx)
+        for inx in range(nx):
+            irow = inx*neq
+            u[irow]   = a[inx]
+            u[irow+1] = b[inx]
+            u[irow+2] = c[inx]
+        assert (irow+2) == (neq*nx - 1)
+        return u
 
     def fcn(self, t, y):
         """ y est de la forme [ a0, b0, c0, a1, b1 , c1 ] pour assurer une
@@ -89,9 +124,11 @@ class BZ1D_3equations():
            
 if __name__=='__main__':
     # model parameterization
-    nx=100
-    nt=1000
-    T = np.array([0., 0.1])
+    nx=101
+    nt_dirk=5000
+    nt_strang=100
+    nvar = 3
+    T = np.array([0., 10.])
     BZobj = BZ1D_3equations(eps=1e-2, mu=5e-5, f=3, q=2e-3,
              Da=2.5e-3, Db=2.5e-3, Dc = 1.5e-3,
              xmin=0., xmax=4., nx=nx)
@@ -99,55 +136,58 @@ if __name__=='__main__':
     gradF=None
     
     # initial conditions
-    a0  = 1+0*np.linspace(0,1,nx)
-    b0  = 1+0*np.linspace(0,1,nx)
-    c0  = 1+0*np.linspace(0,1,nx)
-    x_0 = np.vstack((a0,b0,c0)).ravel(order='F')
-    mesh_x = np.linspace(0,4,nx)
+    x_0 = BZobj.init_sol()
+    fig,ax  = plt.subplots(nvar,1,sharex=True)
+    markevery = 1
+    for i in range(nvar):
+        ax[i].plot(BZobj.x, x_0[i::3], marker='+', markevery=markevery)
+    ax[-1].set_ylabel('x')
+    fig.suptitle('initial solution')
     
     
     # compute reference solution
     t_start = pytime.time()
     if 1: # PYTHON version
-        solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-12, atol=1e-12, jac=gradF)
+        solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=np.linspace(T[0], T[1], 1000),
+                                           vectorized=False, rtol=1e-4, atol=1e-4, jac=gradF)
         if solref.status!=0:
             raise Exception('ODE integration failed: {}'.format(solref.message))
         yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
         solref.nstep = solref.t.size
     else: # FORTRAN VERSION
-      solref = integration.radau5(T[0], T[1], x_0, BZobj.fcn_radau, njac=1, atol=1.e-12, rtol=1.e-12)
-      solref.y = solref.y[:,np.newaxis]
-      yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
+        solref = integration.radau5(T[0], T[1], x_0, BZobj.fcn_radau, njac=1, atol=1.e-12, rtol=1.e-12)
+        solref.y = solref.y[:,np.newaxis]
+        yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
     t_end = pytime.time()
     print('Reference solution computed in {} s with {} time steps'.format(t_end-t_start, solref.nstep))
     
     # compute solution with DIRK
-    if 1:
-        #    A,b,c = rk_coeffs.RK4coeffs()
-        #    A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-        A=np.array([[1,],]);  b=np.array([1]);  c=np.array([1])
-        t_start = pytime.time()
-        sol=None
-        sol = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
-                               bRosenbrockApprox=False, bUseCustomNewton=True, initSol=sol)
-        ysol = [ sol.y[::3,:], sol.y[1::3,:], sol.y[2::3,:] ]
-        t_end = pytime.time()
-        print('DIRK solution computed in {} s with {} time steps'.format(t_end-t_start, sol.t.size))
-    else:
-        ysol=yref
-        sol=solref
-    
-    
-    nvar = 3
+    #    A,b,c = rk_coeffs.RK4coeffs()
+    A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
+#        A=np.array([[1,],]);  b=np.array([1]);  c=np.array([1])
+    t_start = pytime.time()
+    sol_dirk = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt_dirk, A=A, b=b, c=c, options=None, gradF=gradF,
+                           bRosenbrockApprox=False, bUseCustomNewton=True)
+    ysol_dirk = [ sol_dirk.y[::3,:], sol_dirk.y[1::3,:], sol_dirk.y[2::3,:] ]
+    t_end = pytime.time()
+    print('DIRK solution computed in {} s with {} time steps'.format(t_end-t_start, sol_dirk.t.size))
+
+
     fig,ax  = plt.subplots(nvar,1,sharex=True)
-    if sol.t.size>2e3:
-        markevery = np.floor(sol.t.size/50).astype(int)
-    else:
-        markevery = 1
     for i in range(nvar):
-        ax[i].plot(mesh_x, ysol[i][:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery, linewidth=2)
-        ax[i].plot(mesh_x, yref[i][:,-1], label='ref', marker=None, linewidth=0.5)
+        for jj in range(0, solref.t.size, 50):
+            ax[i].plot(BZobj.x, yref[i][:,jj], label='t={:.3e}'.format(solref.t[jj]))    
+        ax[i].grid(which='both')
+    ax[-1].set_ylabel('x')
+    fig.suptitle('evolution of reference solution')
+    
+    
+    fig,ax  = plt.subplots(nvar,1,sharex=True)
+    markevery = 1
+    for i in range(nvar):
+        ax[i].plot(BZobj.x, ysol_dirk[i][:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery, linewidth=2)
+        ax[i].plot(BZobj.x, yref[i][:,-1], label='ref', marker=None, linewidth=0.5)
         ax[i].grid(which='both')
     ax[0].legend()
-    ax[-1].set_ylabel('x (m/s)')
+    ax[-1].set_ylabel('x')
     fig.suptitle('last time step BZ')

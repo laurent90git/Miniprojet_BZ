@@ -19,78 +19,6 @@ from mylib import integration
 import rk_coeffs
 
 
-class BurgersDiff1D():
-    """ Equation de Burgers avec diffusion """
-    def __init__(self, mu=1e-2, c=1., xmin=0., xmax=4., nx=100, osc_bc=lambda t: 0.) :
-        """ osc_bs est un fonction du temps qui donne le flux gauche du/dx(0) """
-        self.mu = mu
-        self.c = c
-        self.xmin = xmin
-        self.xmax = xmax
-        self.nx = nx
-        self.osc_bc = osc_bc
-        self.x = np.linspace(xmin,xmax,nx)
-        self.dx = (xmax-xmin)/(nx+1)
-        
-    def init_sol(self):
-        x_0 = np.ones_like(self.x)
-        x_0[x_0.size//2:] = 0.
-        return x_0
-
-    def fcn(self, t, y):
-#        mu  = self.mu
-#        nx = self.nx
-#        dx = self.dx
-#        c  = self.c
-#        doverdxdx = mu/(dx*dx)
-#        ydot = np.zeros_like(y)
-#        # neumann BC
-#        flux_gauche = self.osc_bc(t)
-#        y_gauche = y[0] - dx * flux_gauche
-#        y_droit  = 0.
-#        ydot[0]      = -c*(y[0]-y_gauche)/dx       + doverdxdx*(y_gauche-2*y[0]+y[1])
-#        ydot[1:nx-1] = -c*(y[1:nx-1]-y[:nx-2])/dx  + doverdxdx*(y[0:nx-2] - 2*y[1:nx-1] + y[2:nx])
-#        ydot[nx-1]   = -c*(y[nx-1]-y[nx-2])/dx     + doverdxdx*(y_droit-2*y[-1]+y[-2])
-        ydot = self.fcn_conv(t,y) + self.fcn_diff(t,y)
-        return ydot
-
-    def fcn_diff(self, t, y):
-        mu  = self.mu
-        nx = self.nx
-        dx = self.dx
-        doverdxdx = mu/(dx*dx)
-        ydot = np.zeros_like(y)
-        # neumann BC
-        flux_gauche = self.osc_bc(t)
-        y_gauche = y[0] - dx * flux_gauche
-        y_droit  = 0.
-        ydot[0]      = doverdxdx*(y_gauche-2*y[0]+y[1])
-        ydot[1:nx-1] = doverdxdx*(y[0:nx-2] - 2*y[1:nx-1] + y[2:nx])
-        ydot[nx-1]   = doverdxdx*(y_droit-2*y[-1]+y[-2])
-        return ydot
-
-    def fcn_conv(self, t, y):
-        nx = self.nx
-        dx = self.dx
-        c  = self.c
-        ydot = np.zeros_like(y)
-        # neumann BC
-        flux_gauche = self.osc_bc(t)
-        y_gauche = y[0] - dx * flux_gauche
-        ydot[0]      = -c*(y[0]-y_gauche)/dx
-        ydot[1:nx-1] = -c*(y[1:nx-1]-y[:nx-2])/dx
-        ydot[nx-1]   = -c*(y[nx-1]-y[nx-2])/dx
-        return ydot
-    
-    def fcn_radau(self, n, t, y, ydot, rpar, ipar):
-        n_python = 3*self.nx
-        t_python = make_nd_array(t, (1,))[0]
-        y_python = make_nd_array(y, (n_python,))
-        y_dot_python = self.fcn(t_python, y_python)
-        for i in range(y_dot_python.size):
-           ydot[i] = y_dot_python[i]
-
-
 def computeJacobian(modelfun,x, options, bUseComplexStep):
     """
     Method to numerically compute the Jacobian of the function modelfun with
@@ -231,7 +159,7 @@ def DIRK_integration(f, y0, t_span, nt, A, b, c, options, gradF=None,
                                             bUseComplexStep=False)
 
     K= np.zeros((np.size(y0), s))
-    unm1 = y0[:]
+    unm1 = np.copy(y0)
     solver = newton.newtonSolverObj()
     if initSol is None:
       Dres, LU, Dresinv = None, None, None
@@ -240,6 +168,7 @@ def DIRK_integration(f, y0, t_span, nt, A, b, c, options, gradF=None,
 
     for it, tn in enumerate(t[:-1]):
         ## SUBSTEPS
+#        print(f"t={t[it]:.16e}")
 #        unm1 = y[:,it]
         for isub in range(s): # go through each substep
             temp = np.zeros(np.shape(y0))
@@ -298,180 +227,108 @@ class strang_result:
         self.y = y
 
 def strang(tini, tend, nt, yini, fcn_diff, fcn_reac, tol_diff=1.e-12, tol_reac=1.e-12,
-           jac_reac=None, jac_diff=None, sparsity_pattern_reac=None, sparsity_pattern_diff=None):
+           jac_reac=None, jac_diff=None, sparsity_pattern_reac=None, sparsity_pattern_diff=None,
+           method_diff='Radau', method_reac='Radau'):
     t = np.linspace(tini, tend, nt)
     dt = (tend-tini)/(nt-1)
-    ysol = yini
+    ysol = yini[:]
     yout = np.zeros((yini.size,nt))
     yout[:,0] = yini[:]
     for it, ti in enumerate(t[:-1]):
-        sol = scipy.integrate.solve_ivp(fun=fcn_reac, y0=ysol, t_span=[ti, ti+dt/2], method='Radau', t_eval=[ti+dt/2],
+        sol = scipy.integrate.solve_ivp(fun=fcn_reac, y0=ysol, t_span=[ti, ti+dt/2], method=method_reac, t_eval=[ti+dt/2],
                                         vectorized=False, rtol=tol_reac, atol=tol_reac, jac=jac_reac, jac_sparsity=sparsity_pattern_reac)
-        ysol = sol.y[:,0]
-        
-        sol = scipy.integrate.solve_ivp(fun=fcn_diff, y0=ysol, t_span=[ti, ti+dt], method='Radau', t_eval=[ti+dt],
+        ysol = sol.y[:,-1]
+        sol = scipy.integrate.solve_ivp(fun=fcn_diff, y0=ysol, t_span=[ti, ti+dt], method=method_diff, t_eval=None, #[ti+dt],
                                         vectorized=False, rtol=tol_diff, atol=tol_diff, jac=jac_diff, jac_sparsity=sparsity_pattern_diff)
-        ysol = sol.y[:,0]
+        ysol = sol.y[:,-1]
         
-        sol = scipy.integrate.solve_ivp(fun=fcn_reac, y0=ysol, t_span=[ti+dt/2, ti+dt], method='Radau', t_eval=[ti+dt],
+        sol = scipy.integrate.solve_ivp(fun=fcn_reac, y0=ysol, t_span=[ti+dt/2, ti+dt], method=method_reac, t_eval=[ti+dt],
                                         vectorized=False, rtol=tol_reac, atol=tol_reac, jac=jac_reac, jac_sparsity=sparsity_pattern_reac)
-        ysol = sol.y[:,0]
+        ysol = sol.y[:,-1]
         yout[:,it+1] = ysol[:]
     return strang_result(t,yout)
 
 
 if __name__=='__main__':
-    if 0: #@spring-mass test
-                print('testing DIRK with a simple spring-mass model')
-                options = {'k_sur_m': 33.,
-                           'bDebug': True,
-                           'bVectorisedModelFun': False,
-                           'bUseComplexStep': False,
-                           }
-                modelA = np.array( ( (0,1),(-options['k_sur_m'], 0) ))
-                def modelfun(t,x,options={}):
-                    Xdot = np.dot(modelA, x)
-                    return Xdot
-                gradF = lambda t,x: modelA
-                x_0 = np.array((0.3,0.))
-                nt = 1000
-                T = np.array([0., 1.])
-            
-                # compute reference solution
-                solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-6, atol=1e-6, jac=None)
-                if solref.status!=0:
-                    raise Exception('ODE integration failed: {}'.format(solref.message))
-            
-                # compute solution with DIRK
-                import rk_coeffs
-            #    A,b,c = rk_coeffs.RK4coeffs()
-                A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-            
-            #    A=np.array([[1,],])
-            #    b=np.array([1])
-            #    c=np.array([1])
-                import time as pytime
-                t_start = pytime.time()
-                sol=None
-                sol = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
-                                       bRosenbrockApprox=False, bUseCustomNewton=False, initSol=sol)
-                t_end = pytime.time()
-                print('computed in {} s'.format(t_end-t_start))
-            #    sol = solref
-            
-                fig,ax  = plt.subplots(2,1,sharex=True)
-                if sol.t.size>100:
-                    markevery = np.floor(sol.t.size/50).astype(int)
-                else:
-                    markevery = 1
-                ax[0].plot(sol.t, sol.y[0,:], label='DIRK', marker='+', linestyle='', markevery=markevery)
-                ax[0].plot(solref.t, solref.y[0,:], label='ref', marker=None)
-            
-                ax[1].plot(sol.t, sol.y[1,:], label='DIRK', marker='+', linestyle='', markevery=markevery)
-                ax[1].plot(solref.t, solref.y[1,:], label='ref', marker=None)
-            
-                ax[0].legend()
-                ax[1].set_xlabel('t (s)')
-                ax[1].set_ylabel('v (m/s)')
-                ax[0].set_ylabel('x (m/s)')
-            
-                ax[0].grid(which='both')
-                ax[1].grid(which='both')
-                fig.suptitle('Spring-mass system')
-            
-                fig,ax  = plt.subplots(2,1,sharex=True)
-                import scipy.interpolate
-                interped_ref = np.zeros_like(sol.y)
-                interped_ref[0,:] = scipy.interpolate.interp1d(x=solref.t, y=solref.y[0,:], kind='linear')(sol.t)
-                interped_ref[1,:] = scipy.interpolate.interp1d(x=solref.t, y=solref.y[1,:], kind='linear')(sol.t)
-                error_x = np.abs( sol.y[0,:] - interped_ref[0,:] )
-                error_v = np.abs( sol.y[1,:] - interped_ref[1,:] )
-                ax[0].semilogy(sol.t, error_x)
-                ax[1].semilogy(sol.t, error_v)
-            
-                ax[1].set_xlabel('t (s)')
-                ax[1].set_ylabel('v (m/s)')
-                ax[0].set_ylabel('x (m/s)')
-            
-                ax[0].grid(which='both')
-                ax[1].grid(which='both')
-                fig.suptitle('Error compared to ref')
-            
-            
-    else: # viscid burgers
-                def osc_left_bc(t):
-                    """ fonction pour faire varier le flux gauche """
-                    return 0*4*np.sin(2*np.pi*t*10)
-                
-                nx=200
-                obj = BurgersDiff1D(mu=0.3e-2, c=0.2, xmin=0., xmax=2., nx=nx, osc_bc=osc_left_bc)
-                fcn = obj.fcn
-                x_0 = obj.init_sol()
-                
-                gradF = lambda t,x: modelA
-                nt = 1000
-                T = np.array([0., 1.])
-            
-                # compute reference solution
-                t_start = pytime.time()
-                
-                # compute jacobians to speed up things
-                from scipy.sparse import diags
-                import numpy as np
-                k = np.array([np.ones(nx-1),-2*np.ones(nx),np.ones(nx-1)])
-                offset = [-1,0,1]
-                sparsity_pattern_diff = diags(k,offset).toarray()
-                jac_diff = obj.mu/(obj.dx**2)*sparsity_pattern_diff
+    #spring-mass test
+    print('testing DIRK with a simple spring-mass model')
+    options = {'k_sur_m': 33.,
+               'bDebug': True,
+               'bVectorisedModelFun': False,
+               'bUseComplexStep': False,
+               }
+    modelA = np.array( ( (0,1),(-options['k_sur_m'], 0) ))
+    def modelfun(t,x,options={}):
+        Xdot = np.dot(modelA, x)
+        return Xdot
+    gradF = lambda t,x: modelA
+    x_0 = np.array((0.3,0.))
+    nt_dirk = 10
+    nt_strang = 10
+    T = np.array([0., 1.])
 
-                k = np.array([-1*np.ones(nx-1), np.ones(nx)])
-                offset = [-1,0]
-                sparsity_pattern_reac = diags(k,offset).toarray()
-                jac_reac = None #-obj.c/obj.dx * sparsity_pattern_reac
-                
-                sparsity_pattern = sparsity_pattern_diff
-                
-                solref = scipy.integrate.solve_ivp(fun=fcn, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-12, atol=1e-12, jac=None,
-                                                   jac_sparsity=sparsity_pattern)
-                t_end = pytime.time()
-                print('reference computed in {} s'.format(t_end-t_start))
-                if solref.status!=0:
-                    raise Exception('ODE integration failed: {}'.format(solref.message))
-            
-                # compute solution with DIRK
-            #    A,b,c = rk_coeffs.RK4coeffs()
-                A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-            
-            #    A=np.array([[1,],])
-            #    b=np.array([1])
-            #    c=np.array([1])
-#                import time as pytime
-                t_start = pytime.time()
-                sol=None
-                sol = DIRK_integration(f=fcn, y0=x_0, t_span=T, nt=nt, A=A, b=b, c=c, options=None, gradF=gradF,
-                                       bRosenbrockApprox=False, bUseCustomNewton=True, initSol=sol)
-                t_end = pytime.time()
-                print('DIRK computed in {} s'.format(t_end-t_start))
-                
-                # Splitting
-                t_start = pytime.time()
-                sol_split = strang(tini=T[0], tend=T[1], nt=100, yini=x_0, fcn_diff=obj.fcn_diff, fcn_reac=obj.fcn_conv,
-                                   tol_diff=1.e-12, tol_reac=1.e-12, jac_reac=jac_reac, jac_diff=jac_diff,
-                                   sparsity_pattern_reac=sparsity_pattern_reac, sparsity_pattern_diff=sparsity_pattern_diff)
-                t_end = pytime.time()
-                print('Strang computed in {} s'.format(t_end-t_start))
+    #### compute reference solution
+    t_start = pytime.time()
+    solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=None, vectorized=False, rtol=1e-12, atol=1e-12, jac=None)
+    if solref.status!=0:
+        raise Exception('ODE integration failed: {}'.format(solref.message))
+    t_end = pytime.time()
+    print('DIRK computed in {} s'.format(t_end-t_start))
+    
+    #### compute solution with DIRK
+    #A,b,c = rk_coeffs.RK4coeffs()
+    A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
+    t_start = pytime.time()
+    sol_dirk = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt_dirk, A=A, b=b, c=c, options=None, gradF=gradF,
+                           bRosenbrockApprox=False, bUseCustomNewton=False)
+    t_end = pytime.time()
+    print('DIRK computed in {} s'.format(t_end-t_start))
 
-                fig,ax  = plt.subplots(1,1,sharex=True)
-                ax = [ax]
-                if obj.x.size>100:
-                    markevery = np.floor(sol.t.size/50).astype(int)
-                else:
-                    markevery = 1
-                ax[0].plot(obj.x, solref.y[:,-1], label='ref', marker=None)
-                ax[0].plot(obj.x, sol.y[:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery)
-                ax[0].plot(obj.x, sol_split.y[:,-1], label='Strang', marker='x', linestyle='', markevery=markevery)
-                ax[0].legend()
-                ax[0].set_xlabel('x')
-                ax[0].set_ylabel('u')
-                ax[0].grid(which='both')
-                fig.suptitle('Burgers with viscosity={:.3e}'.format(obj.mu))
-            
+    #### compute Strang solution
+    t_start = pytime.time()
+    sol_strang = strang(tini=T[0], tend=T[1], nt=nt_strang, yini=x_0,
+#                        fcn_diff=modelfun, fcn_reac=lambda t,x:0*x,
+                        fcn_reac=modelfun, fcn_diff=lambda t,x:0*x,
+                       tol_diff=1.e-12, tol_reac=1.e-12)
+    t_end = pytime.time()
+    print('Strang computed in {} s'.format(t_end-t_start))
+
+
+    ### PLOT SOLUTION
+    fig,ax  = plt.subplots(2,1,sharex=True)
+    for cc in [('ref', solref, None), ('DIRK', sol_dirk, '+'), ('Strang', sol_strang, 'x')]:
+        sol = cc[1]; name = cc[0]; marker = cc[2]
+        if sol.t.size>100:
+            markevery = np.floor(sol.t.size/50).astype(int)
+        else:
+            markevery = 1
+        ax[0].plot(sol.t, sol.y[0,:], label=name, marker=marker, markevery=markevery)
+        ax[1].plot(sol.t, sol.y[1,:], label=name, marker=marker, markevery=markevery)
+    ax[0].legend()
+    ax[1].set_xlabel('t (s)')
+    ax[1].set_ylabel('v (m/s)')
+    ax[0].set_ylabel('x (m/s)')
+    ax[0].grid(which='both')
+    ax[1].grid(which='both')
+    fig.suptitle('Spring-mass system')
+
+    #### PLOT ERROR TO REF
+    fig,ax  = plt.subplots(2,1,sharex=True)
+    import scipy.interpolate
+    for cc in [('DIRK', sol_dirk), ('Strang', sol_strang)]:
+        sol = cc[1]; name = cc[0]
+        interped_ref = np.zeros_like(sol.y)
+        interped_ref[0,:] = scipy.interpolate.interp1d(x=solref.t, y=solref.y[0,:], kind='linear')(sol.t)
+        interped_ref[1,:] = scipy.interpolate.interp1d(x=solref.t, y=solref.y[1,:], kind='linear')(sol.t)
+        error_x = np.abs( sol.y[0,:] - interped_ref[0,:] )
+        error_v = np.abs( sol.y[1,:] - interped_ref[1,:] )
+        ax[0].semilogy(sol.t, error_x, label=name)
+        ax[1].semilogy(sol.t, error_v, label=name)
+    ax[1].set_xlabel('t (s)')
+    ax[1].set_ylabel('v (m/s)')
+    ax[0].set_ylabel('x (m/s)')
+    ax[0].legend()
+    ax[0].grid(which='both')
+    ax[1].grid(which='both')
+    fig.suptitle('Error compared to ref')
+    
