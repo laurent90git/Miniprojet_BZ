@@ -168,7 +168,7 @@ def DIRK_integration(f, y0, t_span, nt, A, b, c, options, gradF=None,
 
     for it, tn in enumerate(t[:-1]):
         ## SUBSTEPS
-#        print(f"t={t[it]:.16e}")
+        print(f"t={t[it]:.16e}")
 #        unm1 = y[:,it]
         for isub in range(s): # go through each substep
             temp = np.zeros(np.shape(y0))

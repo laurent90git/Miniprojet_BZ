@@ -4,12 +4,16 @@ Created on Thu Nov  7 21:48:12 2019
 
 @author: Laurent
 """
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
 from mylib import integration
-from integration_dirk import rk_coeffs, DIRK_integration
+from integration_dirk import rk_coeffs, DIRK_integration, strang
 import time as pytime
 import scipy.integrate
-import matplotlib.pyplot as plt
-import newton
+
 import numpy as np
 from utilities import make_nd_array
 
@@ -128,10 +132,11 @@ if __name__=='__main__':
     nt_dirk=5000
     nt_strang=100
     nvar = 3
-    T = np.array([0., 10.])
+    T = np.array([0., 1.])
     BZobj = BZ1D_3equations(eps=1e-2, mu=5e-5, f=3, q=2e-3,
              Da=2.5e-3, Db=2.5e-3, Dc = 1.5e-3,
              xmin=0., xmax=4., nx=nx)
+    x = BZobj.x
     modelfun = BZobj.fcn
     gradF=None
     
@@ -145,49 +150,103 @@ if __name__=='__main__':
     fig.suptitle('initial solution')
     
     
-    # compute reference solution
-    t_start = pytime.time()
-    if 1: # PYTHON version
-        solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=np.linspace(T[0], T[1], 1000),
-                                           vectorized=False, rtol=1e-4, atol=1e-4, jac=gradF)
-        if solref.status!=0:
-            raise Exception('ODE integration failed: {}'.format(solref.message))
-        yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
-        solref.nstep = solref.t.size
-    else: # FORTRAN VERSION
-        solref = integration.radau5(T[0], T[1], x_0, BZobj.fcn_radau, njac=1, atol=1.e-12, rtol=1.e-12)
-        solref.y = solref.y[:,np.newaxis]
-        yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
-    t_end = pytime.time()
-    print('Reference solution computed in {} s with {} time steps'.format(t_end-t_start, solref.nstep))
-    
-    # compute solution with DIRK
-    #    A,b,c = rk_coeffs.RK4coeffs()
-    A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
-#        A=np.array([[1,],]);  b=np.array([1]);  c=np.array([1])
-    t_start = pytime.time()
-    sol_dirk = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt_dirk, A=A, b=b, c=c, options=None, gradF=gradF,
-                           bRosenbrockApprox=False, bUseCustomNewton=True)
-    ysol_dirk = [ sol_dirk.y[::3,:], sol_dirk.y[1::3,:], sol_dirk.y[2::3,:] ]
-    t_end = pytime.time()
-    print('DIRK solution computed in {} s with {} time steps'.format(t_end-t_start, sol_dirk.t.size))
+    if 1: # compute evolutioin of solution profile
+        A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
+        t_start = pytime.time()
+        dt_dirk = 1e-2
+        tf = 10.
+        nt_dirk = np.floor(tf/dt_dirk + 1).astype(int)
+        sol_dirk = DIRK_integration(f=modelfun, y0=x_0, t_span=[0., tf], nt=nt_dirk, A=A, b=b, c=c, options=None, gradF=gradF,
+                               bRosenbrockApprox=False, bUseCustomNewton=True)
+        ysol_dirk = [ sol_dirk.y[::3,:], sol_dirk.y[1::3,:], sol_dirk.y[2::3,:] ]
+        nt = sol_dirk.y.shape[1]
+        time = sol_dirk.t
+        
+        # GIF animé
+        maxs = [np.max(yy) for yy in ysol_dirk]
+        mins = [np.min(yy) for yy in ysol_dirk]
+        import matplotlib.animation as animation
+        fig,ax = plt.subplots(3,1,sharex=True)
+        line = [None for i in range(len(ax))]
+        names = ['a','b','c']
+        for i in range(nvar):
+            line[i], = ax[i].plot(x, ysol_dirk[i][:,0], linewidth=2)
+            ax[i].set_ylabel(names[i])
+            ax[i].set_ylim(mins[i],maxs[i])
+        text = ax[0].text(0.8, 0.5,r'$t = {:.3f}$'.format(0.),
+             horizontalalignment='center',
+             verticalalignment='center',
+             transform = ax[0].transAxes)
+        ax[-1].set_xlabel(r'$x$')       
 
+        selected_time_indices = np.array( range(0,nt, 1) )
+        npts = len(selected_time_indices)
+        def update(j):
+            current_index = selected_time_indices[j]
+            print('{}/{}'.format(j, npts))
+            for i in range(nvar):
+                line[i].set_ydata(ysol_dirk[i][:,current_index])
+            text.set_text(r'$t = {:.3f}$'.format(time[current_index]))
+            return line, ax
+        
+        anim = animation.FuncAnimation(fig, update, frames=np.arange(0, npts), interval=200)
+        anim.save('evolution_BZ_3eq_1e-2_full.gif', dpi=80, writer='imagemagick')
+#        Writer = animation.FFMpegWriter
+#        writer = Writer(fps=15, metadata=dict(artist='Me'), bitrate=1800)
+#        anim.save('test.mp4', writer=writer )
+        plt.show()
+        
 
-    fig,ax  = plt.subplots(nvar,1,sharex=True)
-    for i in range(nvar):
-        for jj in range(0, solref.t.size, 50):
-            ax[i].plot(BZobj.x, yref[i][:,jj], label='t={:.3e}'.format(solref.t[jj]))    
-        ax[i].grid(which='both')
-    ax[-1].set_ylabel('x')
-    fig.suptitle('evolution of reference solution')
+    else:
+        # compute reference solution
+        t_start = pytime.time()
+        if 1: # PYTHON version
+            solref = scipy.integrate.solve_ivp(fun=modelfun, y0=x_0, t_span=T, method='Radau', t_eval=np.linspace(T[0], T[1], 1000),
+                                               vectorized=False, rtol=1e-4, atol=1e-4, jac=gradF)
+            if solref.status!=0:
+                raise Exception('ODE integration failed: {}'.format(solref.message))
+            yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
+            solref.nstep = solref.t.size
+        else: # FORTRAN VERSION
+            solref = integration.radau5(T[0], T[1], x_0, BZobj.fcn_radau, njac=1, atol=1.e-12, rtol=1.e-12)
+            solref.y = solref.y[:,np.newaxis]
+            yref = [ solref.y[::3,:], solref.y[1::3,:], solref.y[2::3,:] ]
+        t_end = pytime.time()
+        print('Reference solution computed in {} s with {} time steps'.format(t_end-t_start, solref.nstep))
+        
+        # compute solution with DIRK
+        #    A,b,c = rk_coeffs.RK4coeffs()
+        A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
+    #        A=np.array([[1,],]);  b=np.array([1]);  c=np.array([1])
+        t_start = pytime.time()
+        sol_dirk = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt_dirk, A=A, b=b, c=c, options=None, gradF=gradF,
+                               bRosenbrockApprox=False, bUseCustomNewton=True)
+        ysol_dirk = [ sol_dirk.y[::3,:], sol_dirk.y[1::3,:], sol_dirk.y[2::3,:] ]
+        t_end = pytime.time()
+        print('DIRK solution computed in {} s with {} time steps'.format(t_end-t_start, sol_dirk.t.size))
     
     
-    fig,ax  = plt.subplots(nvar,1,sharex=True)
-    markevery = 1
-    for i in range(nvar):
-        ax[i].plot(BZobj.x, ysol_dirk[i][:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery, linewidth=2)
-        ax[i].plot(BZobj.x, yref[i][:,-1], label='ref', marker=None, linewidth=0.5)
-        ax[i].grid(which='both')
-    ax[0].legend()
-    ax[-1].set_ylabel('x')
-    fig.suptitle('last time step BZ')
+        # strang
+        sol_strang = strang(tini=T[0], tend=T[1], nt=nt_strang, yini=x_0, fcn_diff=BZobj.fcn_diff, fcn_reac=BZobj.fcn_conv,
+                                    tol_diff=1.e-12, tol_reac=1.e-12,# jac_reac=jac_reac, jac_diff=jac_diff,
+    #                                sparsity_pattern_reac=sparsity_pattern_reac, sparsity_pattern_diff=sparsity_pattern_diff,
+                                    method_diff='Radau', method_reac='RK45')
+        
+        fig,ax  = plt.subplots(nvar,1,sharex=True)
+        for i in range(nvar):
+            for jj in range(0, solref.t.size, 50):
+                ax[i].plot(BZobj.x, yref[i][:,jj], label='t={:.3e}'.format(solref.t[jj]))    
+            ax[i].grid(which='both')
+        ax[-1].set_ylabel('x')
+        fig.suptitle('evolution of reference solution')
+        
+        
+        fig,ax  = plt.subplots(nvar,1,sharex=True)
+        markevery = 1
+        for i in range(nvar):
+            ax[i].plot(BZobj.x, ysol_dirk[i][:,-1], label='DIRK', marker='+', linestyle='', markevery=markevery, linewidth=2)
+            ax[i].plot(BZobj.x, yref[i][:,-1], label='ref', marker=None, linewidth=0.5)
+            ax[i].grid(which='both')
+        ax[0].legend()
+        ax[-1].set_ylabel('x')
+        fig.suptitle('last time step BZ')
