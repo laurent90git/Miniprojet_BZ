@@ -6,17 +6,8 @@ Created on Fri Mar  8 18:43:48 2019
 """
 import numpy as np
 
-class ode_result:
-    def __init__(self, y, t, nfev):
-        self.y = y
-        self.t = t
-        self.nfev = nfev
-
-
 def getButcher(name):
-  """ Donne le tableau de Butcher (A,b,c) de la méthode RK choisie
-  Source: https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods
-  """
+  """ Donne le tableau de Butcher (A,b,c) de la méthode RK choisie  """
   name = name.upper()
   if name=='IE' or name=='IE2': # Implicit Euler, L-stable stiffly accurate
     A= np.array([[1]])
@@ -26,11 +17,11 @@ def getButcher(name):
     A= np.array([[0]])
     c= np.array([0])
     b= np.array([1])
-#  elif name=='CRKN': # Crank-Nicolson
-#    A= np.array([[0, 0],
-#                 [0, 1]])
-#    c= np.array([0, 1])
-#    b= np.array([1/2, 1/2])
+  elif name=='CRKN': # Crank-Nicolson
+    A= np.array([[0, 0],
+                 [1/2, 1/2]])
+    c= np.array([0, 1])
+    b= np.array([1/2, 1/2])
   elif name=='L-SDIRK-22-QZ': #Qin and Zhang
     # n'est pas stiffly accurate, mais est L-stable
     x = 1+np.sqrt(2)/2
@@ -47,6 +38,9 @@ def getButcher(name):
                  ])
     c= np.array([0, 1/2, 1/2, 1])
     b= np.array([1/6, 1/3, 1/3, 1/6])
+  elif name=='RK10':
+    A,b,c = RK10coeffs()
+
 
   elif name=='L-SDIRK-43': # L-Stable, stiffly accurate, 4 stages, 3 order, SDIRK method
     A = np.array([[1/2,   0,  0,   0],
@@ -64,6 +58,7 @@ def getButcher(name):
                 ])
     c= np.array([x, (1+x)/2, 1])
     b= A[-1,:]
+
   elif name== 'ESDIRK32-3': # stiffly accurate
     # méthode d'ordre 3 extraite de la méthode embedded ESDIRK 32 avec 4 stages
     # taken from A FAMILY OF ESDIRK INTEGRATION METHODS
@@ -90,9 +85,218 @@ def getButcher(name):
                 ])
     c= np.array([0, 2*gamma, 1])
     b= A[-1,:]
+
+  elif name=='ESDIRK32A': #embedded method
+    gamma = 0.4358665215
+    gamma = 0.4358665215
+    A= np.array([ [0, 0, 0, 0],
+                  [gamma, gamma, 0, 0],
+                  [(-4*gamma**2 + 6*gamma-1)/(4*gamma), (-2*gamma+1)/(4*gamma), gamma, 0.],
+                  [(6*gamma-1)/(12*gamma), -1/(12*gamma*(2*gamma-1)), (-6*gamma**2 + 6*gamma -1)/(3*(2*gamma-1)), gamma],
+                ])
+    c= np.array([0, 2*gamma, 1, 1])
+
+    b_low = A[-2,:] #bas ordre
+    b     = A[-1,:] #ordre eleve
+    d= b-b_low # poids pour l'estimation de l'erreur
+    p_low = 2 #ordre de la méthode bas ordre
+    p_high = 3 #ordre de la méthode d'ordre élevé
+#    n_avancement = 'high'
+    isub_high = 4 # le 4ème substep correspond au pas final de la méthode d'ordre élevé
+    isub_low  = 3 # le 3ème substep correspond au pas final de la méthode d'ordre faible
+    embedded = { 'isub_high':isub_high, 'isub_low':isub_low, 'p_low':p_low, 'p_high':p_high , 'd':d}
+
+  elif name=='ESDIRK43B': #embedded method
+    A= np.array([ [0, 0, 0, 0, 0],
+                  [0.43586652150846, 0.43586652150846, 0, 0, 0],
+                  [0.14073777472471, -0.10836555138132, 0.43586652150846, 0, 0],
+                  [0.10239940061991, -0.37687845225556, 0.83861253012719, 0.43586652150846, 0],
+                  [0.15702489786032,  0.11733044137044, 0.61667803039212, -0.32689989113134, 0.43586652150846],
+                ])
+    c= np.array([0, 0.87173304301692, 0.46823874485185, 1, 1])
+
+    b_low = A[-2,:] #bas ordre
+    b     = A[-1,:] #ordre eleve
+    d = b-b_low # poids pour l'estimation de l'erreur
+    p_low = 3 #ordre de la méthode bas ordre
+    p_high = 4 #ordre de la méthode d'ordre élevé
+#    n_avancement = 'high'
+    isub_high = 5 # le 4ème substep correspond au pas final de la méthode d'ordre élevé
+    isub_low  = 4 # le 3ème substep correspond au pas final de la méthode d'ordre faible
+    embedded = { 'isub_high':isub_high, 'isub_low':isub_low, 'p_low':p_low, 'p_high':p_high , 'd':d}
+
+  elif name=='ESDIRK-54A': #embedded method (Kvaerno 2004, but coeffs found in arkcode butcher)
+        # 7 stages, orders 5 and 4, both stiffly accurate
+        A = np.zeros((7,7))
+        b_low = np.zeros(7)
+        b = np.zeros(7)
+        c = np.zeros(7)
+
+        A[1,0] = 0.26
+        A[1,1] = 0.26
+        A[2,0] = 0.13
+        A[2,1] = 0.84033320996790809
+        A[2,2] = 0.26
+        A[3,0] = 0.22371961478320505
+        A[3,1] = 0.47675532319799699
+        A[3,2] = -0.06470895363112615
+        A[3,3] = 0.26
+        A[4,0] = 0.16648564323248321
+        A[4,1] = 0.10450018841591720
+        A[4,2] = 0.03631482272098715
+        A[4,3] = -0.13090704451073998
+        A[4,4] = 0.26
+        A[5,0] = 0.13855640231268224
+        A[5,2] = -0.04245337201752043
+        A[5,3] = 0.02446657898003141
+        A[5,4] = 0.61943039072480676
+        A[5,5] = 0.26
+        A[6,0] = 0.13659751177640291
+        A[6,2] = -0.05496908796538376
+        A[6,3] = -0.04118626728321046
+        A[6,4] = 0.62993304899016403
+        A[6,5] = 0.06962479448202728
+        A[6,6] = 0.26
+
+        b[0] = 0.13659751177640291
+        b[2] = -0.05496908796538376
+        b[3] = -0.04118626728321046
+        b[4] = 0.62993304899016403
+        b[5] = 0.06962479448202728
+        b[6] = 0.26
+
+        b_low[0] = 0.13855640231268224
+        b_low[2] = -0.04245337201752043
+        b_low[3] = 0.02446657898003141
+        b_low[4] = 0.61943039072480676
+        b_low[5] = 0.26
+
+        c[1] = 0.52
+        c[2] = 1.230333209967908
+        c[3] = 0.895765984350076
+        c[4] = 0.436393609858648
+        c[5] = 1.0
+        c[6] = 1.0
+
+        assert np.allclose(b,A[-1,:])
+        assert np.allclose(b_low,A[-2,:])
+
+#        b_low = A[-2,:] #bas ordre
+#        b     = A[-1,:] #ordre eleve
+#        d = b-b_low # poids pour l'estimation de l'erreur
+        p_low = 4 #ordre de la méthode bas ordre
+        p_high = 5 #ordre de la méthode d'ordre élevé
+        isub_high = 7 # le 4ème substep correspond au pas final de la méthode d'ordre élevé
+        isub_low  = 6 # le 3ème substep correspond au pas final de la méthode d'ordre faible
+        embedded = { 'isub_high':isub_high, 'isub_low':isub_low, 'p_low':p_low, 'p_high':p_high, 'd':None}
+
+  elif name=='ESDIRK-54A-V4': #method of ordre 4 extracted from the Kvaerno 54a method
+        A = np.zeros((6,6))
+        b = np.zeros(6)
+        c = np.zeros(6)
+
+        A[1,0] = 0.26
+        A[1,1] = 0.26
+        A[2,0] = 0.13
+        A[2,1] = 0.84033320996790809
+        A[2,2] = 0.26
+        A[3,0] = 0.22371961478320505
+        A[3,1] = 0.47675532319799699
+        A[3,2] = -0.06470895363112615
+        A[3,3] = 0.26
+        A[4,0] = 0.16648564323248321
+        A[4,1] = 0.10450018841591720
+        A[4,2] = 0.03631482272098715
+        A[4,3] = -0.13090704451073998
+        A[4,4] = 0.26
+        A[5,0] = 0.13855640231268224
+        A[5,2] = -0.04245337201752043
+        A[5,3] = 0.02446657898003141
+        A[5,4] = 0.61943039072480676
+        A[5,5] = 0.26
+
+
+        b[0] = 0.13855640231268224
+        b[2] = -0.04245337201752043
+        b[3] = 0.02446657898003141
+        b[4] = 0.61943039072480676
+        b[5] = 0.26
+
+        c[1] = 0.52
+        c[2] = 1.230333209967908
+        c[3] = 0.895765984350076
+        c[4] = 0.436393609858648
+        c[5] = 1.0
+        assert(np.all(b==A[-1,:]))
+
+  elif name=='RADAUIIA-5':
+      A = np.zeros((3,3))
+      A[0,0] = 1/9
+      A[0,1] = (-1-(6)**0.5)/18
+      A[0,2] = (-1+(6)**0.5)/18
+      
+      A[1,0] = 1/9
+      A[1,1] = 11/45 + 7*(6**0.5)/360
+      A[1,2] = 11/45 - 43*(6**0.5)/360
+      
+      A[2,0] = 1/9
+      A[2,1] = 11/45 + 43*(6**0.5)/360
+      A[2,2] = 11/45 - 7*(6**0.5)/360
+      
+      b = np.array([1/9, 4/9 + (6**0.5)/36, 4/9 - (6**0.5)/36])
+      c = np.array([0, 3/5-(6**0.5)/10, 3/5+(6**0.5)/10])
+      
+  elif name=='SDIRK4()5L[1]SA-1': # review nasa diagonally implicit RK, page 95, table 22
+      coeff = 1
+      A = np.zeros((5,5))
+      b = np.zeros(5)
+      c = np.zeros(5)
+      A[0,0] = 1/4
+      A[1,0] = (1 - coeff*(2**0.5))/4
+      A[1,1] = 1/4
+      A[2,0] = (-1676+coeff*145*(2**0.5))/6724
+      A[2,1] = 3*(709+coeff*389*(2**0.5))/6724
+      A[2,2] = 1/4
+      A[3,0] = (-371435 - coeff*351111*(2**0.5))/470596
+      A[3,1] = (98054928 + coeff*73894543*(2**0.5))/112001848
+      A[3,2] = (56061972 + coeff*30241643*(2**0.5))/112001848
+      A[3,3] = 1/4
+      A[4,0] = 0.
+      A[4,1] = 4*(74+coeff*273*(2**0.5))/5253
+      A[4,2] = (19187+coeff*5031*(2**0.5))/55284
+      A[4,3] = (116092 - coeff*100113*(2**0.5))/334956
+      A[4,4] = 1/4
+
+      b[:] = A[-1,:]
+      c = np.array([1/4, (2-coeff*(2**0.5))/4, (13+coeff*8*(2**0.5))/41, (41+coeff*9*(2**0.5))/49, 1.])
+  elif name=='SDIRK4()5L[1]SA-2':
+      coeff = -1
+      A = np.zeros((5,5))
+      b = np.zeros(5)
+      c = np.zeros(5)
+      A[0,0] = 1/4
+      A[1,0] = (1 - coeff*(2**0.5))/4
+      A[1,1] = 1/4
+      A[2,0] = (-1676+coeff*145*(2**0.5))/6724
+      A[2,1] = 3*(709+coeff*389*(2**0.5))/6724
+      A[2,2] = 1/4
+      A[3,0] = (-371435 - coeff*351111*(2**0.5))/470596
+      A[3,1] = (98054928 + coeff*73894543*(2**0.5))/112001848
+      A[3,2] = (56061972 + coeff*30241643*(2**0.5))/112001848
+      A[3,3] = 1/4
+      A[4,0] = 0.
+      A[4,1] = 4*(74+coeff*273*(2**0.5))/5253
+      A[4,2] = (19187+coeff*5031*(2**0.5))/55284
+      A[4,3] = (116092 - coeff*100113*(2**0.5))/334956
+      A[4,4] = 1/4
+
+      b[:] = A[-1,:]
+      c = np.array([1/4, (2-coeff*(2**0.5))/4, (13+coeff*8*(2**0.5))/41, (41+coeff*9*(2**0.5))/49, 1.])
+
   elif name=='ESDIRK5(4I)8L[2]SA':
-    # ESdirk method, stiffly accurate, Diagonally Implicit Runge-Kutta Methods for Ordinary Differential Equations. A Review       by Christopher A. Kennedy
-    # error control possible
+      raise Exception("j'ai du me trompé dans cette méthode, car même sur burgers simple, elle CV à l'odre 1")
+      # ESdirk method, stiffly accurate, Diagonally Implicit Runge-Kutta Methods for Ordinary Differential Equations. A Review       by Christopher A. Kennedy
+      # error control possible
       A = np.zeros((8,8))
       b = np.zeros(8)
       c = np.zeros(8)
@@ -114,131 +318,11 @@ def getButcher(name):
 
       b[:] = A[-1,:]
       c = np.array([0, 1/2, (2+np.sqrt(2))/4, 53/100, 4/5, 17/25, 1, 1])
+
   else:
     raise Exception('unknown integrator {}'.format(name))
+  return A,b,c #{'A':A, 'b':b, 'c':c}
 
-  return {'A':A, 'b':b, 'c':c}
-
-def heunEuler(fcn, yini, tspan, tolerance, dt_max):
-    """ Heun Euler adaptative method"""
-    # compute stages
-    neq = np.size(yini)
-    tn=tspan[0]
-    dt=dt_max
-
-    c = np.array([0,1])
-    a = np.array([[0, 0],
-                  [1, 0]])
-    b = np.array([0.5, 0.5])
-    bhat = np.array([1, 0]) #embedded method
-
-    phat = 1 #embedded order
-    #p = 2 #order
-
-    s = np.size(b)
-    ki = np.zeros((neq,s))
-
-    y = [yini]
-    T = [tspan[0]]
-    nfev=0
-    dt = min(dt_max, tspan[1]-tspan[0])
-    while tn<tspan[1]:
-       # print('{}'.format(tn))
-        yn = y[-1]
-        error_norm =2*tolerance
-        while error_norm>tolerance:
-            for i in range(s):
-                temp = np.zeros(neq)
-                for j in range(i):
-                    temp = temp + a[i,j]*ki[:,j]
-                ki[:,i] = fcn(tn+c[i]*dt, yn+dt*temp)
-                nfev = nfev+1
-
-            embedded_ynp1 = np.copy(yn)
-            ynp1 = np.copy(yn)
-            for j in range(s):
-                embedded_ynp1 = embedded_ynp1 + dt*bhat[j]*ki[:,j]
-                ynp1 = yn + 2*dt*b[j]*ki[:,j] #WHY DO I NEED 2* ???????
-
-            error = embedded_ynp1-ynp1
-            error_norm = np.dot(error, error)
-            dtopt = 0.9*dt*(tolerance/error_norm)**(1/(phat+1))
-            if 0: #no stepsize control
-                yn = ynp1
-                tn = tn + dt
-                y.append(ynp1)
-                T.append(tn)
-                error_norm = 0.
-            else:
-                if error_norm>tolerance:
-                    dt = min(1e-10, dtopt)
-                else:
-                    yn = ynp1
-                    tn = tn + dt
-                    y.append(ynp1)
-                    T.append(tn)
-                    error_norm = 0.
-                    # new dt
-                    dt = min(dtopt, tspan[1]-tn)
-                if np.isnan(dt) or np.isnan(tn):
-                    print('oups')
-                print('\n\t t={}'.format(tn))
-                print('\n\tdt={:.3e}, dtopt={:.3e}'.format(dt, dtopt))
-
-    return ode_result(np.array(np.transpose(np.array(y)), order='F'),
-                      np.array(T),
-                      nfev)
-
-def computeJacobian(modelfun,x, options, bUseComplexStep):
-    """
-    Method to numerically compute the Jacobian of the function modelfun with
-    respect to all the components of the input vector x.
-
-    INPUTS:
-        - modelfun:
-            a function of the type y=modelfun(x)
-        - x: (numpy 1D-array)
-            the vector around which the Jacobian must be computed
-        - Options is a dictionnary including 2 fields:
-            - bUseComplexStep: (boolean)
-                if True, a complex pertubation is used, allowing for machine-precision-level
-                accuracy in the determinaiton fo the Jacobian
-                if False, finite differences are used with adaptive pertubation size
-            - bVectorisedModelFun: (boolean)
-                True if the modelfun can accept a vectorised input such as a matrix
-                [x, x1, x2, x3] instead of just the vector x. This way, the modelfun can
-                be called less often and more efficiently
-
-    OUTPUT:
-        - Jac, the Jacobian of the function
-    """
-    n_x = np.size(x)
-    hcpx = 1e-50
-    # multiple perturbed calls
-    if bUseComplexStep:
-        res = modelfun(x)
-        Dres = np.zeros( (np.size(res,0), np.size(x,0)))
-        for ip in range(n_x):
-            perturbation = np.zeros(np.size(x), dtype='cfloat')
-            perturbation[ip] = hcpx*1j
-            perturbation = x + perturbation
-            resP = modelfun(perturbation)
-            Dres[:,ip] = np.imag(resP)/hcpx
-        #res = real(resP)
-    else:
-        res = modelfun(x)
-        Dres = np.zeros( (np.size(res,0), np.size(x,0)) )
-        current_h = np.zeros((n_x,1))
-        for ip in range(n_x):
-            current_h[ip] = np.max([1e-1*abs(x[ip]), 1e-1]) # perturbation's size
-
-            perturbation = np.zeros(np.size(x))
-            perturbation[ip] = current_h[ip]
-
-            perturbation = x + perturbation
-            resP = modelfun(perturbation)
-            Dres[:,ip] = (resP-res)/current_h[ip]
-    return Dres
 
 def RK10coeffs():
     #https://sce.uhcl.edu/rungekutta/rk108.txt
@@ -434,7 +518,6 @@ def RK10coeffs():
             j = int(temp2[1])
             value = float(temp2[2])
             A[k,j] = value
-
     return A,b,c
 
 def RK4coeffs():
@@ -447,178 +530,3 @@ def RK4coeffs():
             [0,0,1,0],
             ])
     return A,b,c
-
-def LDIRK222():
-    gamma = (2-2**0.5)/2
-    delta = 1-1/(2*gamma)
-    A = np.array([
-                  [gamma, 0],
-                  [1-gamma, gamma],
-                  ])
-    b = np.array([1-gamma, gamma])
-    c=np.array([gamma, 1])
-    #A,b,c = expandImplicitTableau(A,b,c)
-    Ahat=np.array([[0,0,0],
-                   [gamma, 0, 0],
-                   [delta, 1-delta, 0],
-                   ])
-    bhat=np.array([delta, 1-delta, 0])
-    chat=np.array([0, gamma, 1])
-    return A,b,c,Ahat,bhat,chat
-
-def FBeuler111():
-    A = np.array([[1]])
-    b = np.array([1])
-    c=np.array([1])
-    #A,b,c = expandImplicitTableau(A,b,c)
-
-    Ahat=np.array([[0,0],
-                   [1,0]])
-    bhat=np.array([1,0])
-    chat=np.array([0,1])
-    return A,b,c,Ahat,bhat,chat
-
-def DIRK121():
-    A = np.array([[1]])
-    b = np.array([1])
-    c=np.array([1])
-    #A,b,c = expandImplicitTableau(A,b,c)
-
-    Ahat=np.array([[0,0],
-                   [1,0]])
-    bhat=np.array([0,1])
-    chat=np.array([0,1])
-    return A,b,c,Ahat,bhat,chat
-
-def DIRK122():
-    A = np.array([
-                  [1/2],
-                  ])
-    b = np.array([1])
-    c=np.array([1/2])
-    #A,b,c = expandImplicitTableau(A,b,c)
-    Ahat=np.array([[0,0],
-                   [1/2, 0],
-                   ])
-    bhat=np.array([0, 1])
-    chat=np.array([0, 1/2])
-    return A,b,c,Ahat,bhat,chat
-
-def LDIRK232():
-    gamma = (2-2**0.5)/2
-    delta = -2*(2**0.5)/3
-    A = np.array([[gamma, 0],
-                  [1-gamma, gamma]])
-    b = np.array([1-gamma, gamma])
-    c = np.array([gamma, 1])
-    #A,b,c = expandImplicitTableau(A,b,c)
-
-    Ahat=np.array([[0,0,0],
-                   [gamma,0,0],
-                   [delta, 1-delta, 0]])
-    bhat=np.array([0, 1-gamma, gamma])
-    chat=np.array([0, gamma, 1])
-    return A,b,c,Ahat,bhat,chat
-
-def DIRK233():
-    gamma = (3+3**0.5)/6
-    A = np.array([
-                  [gamma, 0],
-                  [1-2*gamma, gamma],
-                  ])
-    b = np.array([1/2, 1/2])
-    c=np.array([gamma, 1-gamma])
-    #A,b,c = expandImplicitTableau(A,b,c)
-    Ahat=np.array([[0,0,0],
-                   [gamma, 0, 0],
-                   [gamma-1, 2*(1-gamma), 0],
-                   ])
-    bhat=np.array([0, 1/2, 1/2])
-    chat=np.array([0, gamma, 1-gamma])
-    return A,b,c,Ahat,bhat,chat
-
-def LDIRK343():
-    gamma = 0.4358665215
-    A = np.array([
-                  [gamma,                           0,                               0],
-                  [(1-gamma)/2,                     gamma,                           0],
-                  [-3/2*gamma**2 + 4*gamma - 1/4,    3/2*gamma**2 - 5*gamma + 5/4,   gamma ],
-                  ])
-    b = A[-1,:]
-    c=np.array([gamma, (1+gamma)/2, 1])
-    #A,b,c = expandImplicitTableau(A,b,c)
-    Ahat=np.array([[0,0,0,0],
-                   [0.4358665215, 0, 0, 0],
-                   [0.3212788860, 0.3966543747, 0, 0],
-                   [-0.105858296, 0.5529291479, 0.5529291479, 0],
-                   ])
-    bhat=np.array([0, 1.208496649, -0.644363171, 0.4358665215])
-    chat=np.array([0, 0.4358665215, 0.7179332608, 1.])
-    return A,b,c,Ahat,bhat,chat
-
-def LDIRK443():
-    A = np.array([
-                  [1/2, 0, 0, 0],
-                  [1/6, 1/2, 0, 0],
-                  [-1/2, 1/2, 1/2, 0],
-                  [3/2, -3/2, 1/2, 1/2],
-                  ])
-    b = A[-1,:]
-    c=np.array([1/2, 2/3, 1/2, 1])
-    #A,b,c = expandImplicitTableau(A,b,c)
-    Ahat=np.array([[0,0,0,0, 0],
-                   [1/2, 0, 0, 0, 0],
-                   [11/18, 1/18, 0, 0, 0],
-                   [5/6, -5/6, 1/2, 0, 0],
-                   [1/4, 7/4, 3/4, -7/4, 0],
-                   ])
-    bhat=np.array([1/4, 7/4, 3/4, -7/4, 0])
-    chat=np.array([0, 1/2, 2/3, 1/2, 1])
-    return A,b,c,Ahat,bhat,chat
-
-def rk4(tini, tend, nt, yini, fcn):
-
-    dt = (tend-tini) / (nt-1)
-    t = np.linspace(tini, tend, nt)
-
-    yini_array = np.array(yini)
-    neq = yini_array.size
-
-    y = np.zeros((neq, nt), order='F')
-    y[:,0] = yini_array
-
-    for it, tn  in enumerate(t[:-1]):
-        yn = y[:,it]
-        k1 = fcn(tn, yn)
-        k2 = fcn(tn + 0.5*dt, yn + dt*(0.5*k1))
-        k3 = fcn(tn + 0.5*dt, yn + dt*(0.5*k2))
-        k4 = fcn(tn + dt, yn + dt*k3)
-        y[:,it+1] = yn + (dt/6)*(k1+2*k2+2*k3+k4)
-
-    nfev = 4*(nt-1)
-
-    return ode_result(y, t, nfev)
-
-if __name__=='__main__':
-
-    if 0:
-        lbda = -0.2
-        modelfun = lambda t,x: lbda*x
-        yini = np.array([15., 15])
-        out = heunEuler(fcn=modelfun, yini=yini, tspan=[0.,10.], tolerance=1e-6, dt_max=0.1)
-        #out = rk4(tini=0., tend=10., nt=1000, yini=yini, fcn=modelfun)
-
-        yth = np.zeros(np.shape(out.y))
-        for i in range(np.size(yini)):
-            yth[i,:] = yini[i]*np.exp(lbda*(out.t-out.t[0]))
-
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.plot(out.t, out.y[1,:], marker='+', label='num')
-        plt.plot(out.t, yth[1,:], marker=None, label='th')
-        plt.ylim([-10,30])
-        plt.title('solution')
-
-        plt.figure()
-        plt.plot(np.diff(out.t), marker='+')
-        plt.title('solution dt')
