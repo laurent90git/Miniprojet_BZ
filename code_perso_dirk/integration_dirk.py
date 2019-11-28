@@ -168,8 +168,9 @@ def DIRK_integration(f, y0, t_span, nt, A, b, c, options, gradF=None,
 
     for it, tn in enumerate(t[:-1]):
         ## SUBSTEPS
-        print(f"t={t[it]:.16e}")
-#        unm1 = y[:,it]
+        if np.mod(it,np.floor(nt/100))==0:
+            print('{:.1f} %'.format(100*it/nt))
+#            print(f"t={t[it]:.16e}")
         for isub in range(s): # go through each substep
             temp = np.zeros(np.shape(y0))
             for j in range(isub):
@@ -215,6 +216,9 @@ def DIRK_integration(f, y0, t_span, nt, A, b, c, options, gradF=None,
     # END OF INTEGRATION
     out.y = y[:,:nt+1]
     out.t = t
+    out.nfevals   = solver.nSolverCall
+    out.njacevals = solver.nJacEval
+    out.nlinsolve = solver.nLinearSolve
     if bUseCustomNewton:
       out.Dres = Dres
       out.Dresinv = Dresinv
@@ -276,11 +280,10 @@ if __name__=='__main__':
     print('DIRK computed in {} s'.format(t_end-t_start))
     
     #### compute solution with DIRK
-    #A,b,c = rk_coeffs.RK4coeffs()
-    A,b,c,Ahat,bhat,chat = rk_coeffs.LDIRK343()
+    A,b,c = rk_coeffs.getButcher('L-SDIRK-33')
     t_start = pytime.time()
     sol_dirk = DIRK_integration(f=modelfun, y0=x_0, t_span=T, nt=nt_dirk, A=A, b=b, c=c, options=None, gradF=gradF,
-                           bRosenbrockApprox=False, bUseCustomNewton=False)
+                           bRosenbrockApprox=False, bUseCustomNewton=True)
     t_end = pytime.time()
     print('DIRK computed in {} s'.format(t_end-t_start))
 
