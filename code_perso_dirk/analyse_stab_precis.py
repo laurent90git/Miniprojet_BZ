@@ -72,6 +72,13 @@ class testPrecision:
         R = lambda z: 1+z*np.dot(b, np.linalg.inv(np.eye(s)-z*A).dot(e))
         return np.vectorize(R)
 
+    def generateStabilityPolynomial(self, A,b,c):
+        s = np.size(b)
+        e=np.ones((s,))
+        R = lambda z: 1+z*np.dot(b, np.linalg.inv(np.eye(s)-z*A).dot(e))
+        Rvec = np.vectorize(R)
+        return Rvec
+    
     def computeStabilityPolynomial(self, A,b,c):
         s = np.size(b)
         e=np.ones((s,))
@@ -207,22 +214,25 @@ class testPrecision:
         ax.plot([0,0], [np.min(y), np.max(y)], color=(0,0,0), linestyle='--', linewidth=0.4)
         # plot "expansion" ratio
         map_levels = np.array(np.linspace(-3,3,20)) #np.logspace(-3,3,20)
-        cs            = ax.contourf(xx,yy, np.log10(expp/self.x0), levels=map_levels)#, cmap = 'gist_earth')
+        cs            = ax.contourf(xx,yy, np.log10(np.abs(expp/self.x0)), levels=map_levels)#, cmap = 'gist_earth')
         fig2.colorbar(cs)
         ax.contour(xx,yy,rr,levels=[0,1],colors='r')
         ax.set_title('expansion ratio of numerical solution')
-        return fig
+        return pprecision, pprecision2
 
 if __name__=='__main__':
+    import warnings
+    warnings.simplefilter("error", np.ComplexWarning) #to ensure we are not dropping complex perturbations
+
     ## test RK stability region
     N = 200
-    A,b,c = rk_coeffs.getButcher('ESDIRK32-2')#54A-V4') #'RadauIIA-5')#'L-SDIRK-33') #SDIRK4()5L[1]SA-1')
+    A,b,c = rk_coeffs.getButcher('rk4')#54A-V4') #'RadauIIA-5')#'L-SDIRK-33') #SDIRK4()5L[1]SA-1')
 
 #    plotStabilityRegionRK_old(A,b,c, re_min=-5, re_max=10, im_min=-5, im_max=5, n_re=N, n_im=N+2 )
 
     test =             testPrecision(re_min=-10, re_max=10, im_min=-5, im_max=5, n_re=N, n_im=N+2, x0=1)
 #    test =             testPrecision(re_min=-20, re_max=20, im_min=-20, im_max=20, n_re=N, n_im=N+2, x0=1)
-    test.plotStabilityRegionRK(A,b,c, nt=10)
+    pprecision, pprecision2 = test.plotStabilityRegionRK(A,b,c, nt=10)
 
     # estimate R(+\infty)
     R = test.functionStabilityPolynomial(A,b,c)
@@ -239,3 +249,33 @@ if __name__=='__main__':
 
     plt.show()
     print('|R(inf)|= {}'.format(np.abs(Rvalues[-1])))
+    
+    # Plot comparison of precision zone along the real axis
+    polys=[]
+    names = ['rk4','rk10', 'radau5', 'esdirk-54a']
+    
+    for name in names:
+        A,b,c = rk_coeffs.getButcher(name)
+        polys.append( test.generateStabilityPolynomial(A,b,c) )
+    
+    z_vec = np.linspace(-10,10,1000)
+    nt = 1
+    th_sol = np.exp(z_vec*nt)
+    fig,ax = plt.subplots(2,1,sharex=True)
+    for i in range(2):
+        for j,p in enumerate(polys):
+            r = p(z_vec)**nt
+            relativPrecision = (r - th_sol)
+            if i==0: # relative à l'exponentielle
+                relativPrecision = np.abs(relativPrecision/th_sol)
+                str = "précision de la sol numérique par rapport à l'exponentielle"
+            else: # relative à la sol num
+                relativPrecision = np.abs(relativPrecision/r)
+                str = "précision de l'exponentielle par rapport à la solution numérique"
+            ax[i].plot(z_vec, relativPrecision, label=names[j])
+#            ax[i].semilogy(z_vec, relativPrecision, label=names[j])
+        ax[i].set_ylabel(str)
+        ax[i].set_title(str)
+        ax[i].set_ylim( 0., 2.)
+#        ax[i].set_ylim( 1e-10, 1e0)
+    ax[0].legend()
